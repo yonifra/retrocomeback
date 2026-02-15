@@ -17,9 +17,7 @@ export const registerSchema = z.object({
     .string()
     .min(2, "Display name must be at least 2 characters")
     .max(50, "Display name must be at most 50 characters"),
-  acceptTerms: z.literal(true, {
-    message: "You must accept the terms of service",
-  }),
+  acceptTerms: z.literal(true, "You must accept the terms of service"),
 });
 
 export const forgotPasswordSchema = z.object({
