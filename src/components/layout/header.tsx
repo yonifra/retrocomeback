@@ -52,7 +52,16 @@ export function Header() {
 
           {/* Right: Actions */}
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" aria-label="Search">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Search (Ctrl+K)"
+              onClick={() => {
+                document.dispatchEvent(
+                  new KeyboardEvent("keydown", { key: "k", metaKey: true })
+                );
+              }}
+            >
               <Search className="size-5" />
             </Button>
 

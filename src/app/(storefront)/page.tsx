@@ -1,26 +1,56 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { HeroBanner } from "@/components/shared/hero-banner";
+import { CategoryGrid } from "@/components/shared/category-grid";
+import { ProductSection } from "@/components/shared/product-section";
+import {
+  getFeaturedProducts,
+  getNewArrivals,
+  getCategories,
+} from "@/lib/queries/products";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [featured, newArrivals, categories] = await Promise.all([
+    getFeaturedProducts(),
+    getNewArrivals(),
+    getCategories(),
+  ]);
+
   return (
-    <section className="retro-grid-bg flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-4 text-center">
-      <h1 className="font-heading text-2xl leading-relaxed neon-text text-primary sm:text-3xl md:text-4xl">
-        WELCOME TO
-        <br />
-        THE RETRO ZONE
-      </h1>
+    <>
+      <HeroBanner />
 
-      <p className="mt-6 max-w-md text-base text-muted-foreground sm:text-lg">
-        Radical products from the totally tubular 80s
-      </p>
+      {/* Featured Products */}
+      {featured.length > 0 && (
+        <ProductSection
+          title="FEATURED PRODUCTS"
+          subtitle="Hand-picked radical gear from the retro zone"
+          products={featured}
+          href="/products"
+        />
+      )}
 
-      <Button
-        asChild
-        size="lg"
-        className="mt-10 font-heading text-xs transition-shadow hover:neon-glow"
-      >
-        <Link href="/products">SHOP NOW</Link>
-      </Button>
-    </section>
+      {/* Category Grid */}
+      {categories.length > 0 && <CategoryGrid categories={categories} />}
+
+      {/* New Arrivals */}
+      {newArrivals.length > 0 && (
+        <ProductSection
+          title="NEW ARRIVALS"
+          subtitle="Fresh drops straight from 1985"
+          products={newArrivals}
+          href="/products?sort=newest"
+          glowClass="neon-text-cyan"
+        />
+      )}
+
+      {/* Bottom CTA */}
+      <section className="retro-grid-bg py-20 text-center">
+        <p className="font-heading text-xs text-muted-foreground">
+          MORE RAD STUFF COMING SOON
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Subscribe to get notified when new retro drops land.
+        </p>
+      </section>
+    </>
   );
 }
