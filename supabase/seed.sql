@@ -10,10 +10,10 @@ TRUNCATE variant_options, product_images, product_variants, products, categories
 -- CATEGORIES
 -- =====================
 INSERT INTO categories (id, name, slug, description, image_url, sort_order) VALUES
-  ('a0000001-0000-4000-a000-000000000001', 'Retro Stickers', 'retro-stickers', 'Totally tubular sticker packs straight from the rad side of the 80s! Slap these bad boys on your laptop, skateboard, or boombox.', 'https://placehold.co/400x400/ff00ff/ffffff?text=Retro+Stickers', 1),
-  ('a0000001-0000-4000-a000-000000000002', 'Vintage Tech', 'vintage-tech', 'Radical retro tech vibes for the modern age! These gnarly gadgets and prints bring the synthwave aesthetic to your desk.', 'https://placehold.co/400x400/00ffff/0a0a1a?text=Vintage+Tech', 2),
-  ('a0000001-0000-4000-a000-000000000003', 'Apparel', 'apparel', 'Bodacious threads that scream 1985! Rock these fresh fits and let the world know you''re living in the best decade ever.', 'https://placehold.co/400x400/b100e8/ffffff?text=Apparel', 3),
-  ('a0000001-0000-4000-a000-000000000004', 'Home & Decor', 'home-decor', 'Transform your crib into a neon-soaked paradise! These righteous decor pieces bring the arcade to your living room.', 'https://placehold.co/400x400/ffe81f/0a0a1a?text=Home+Decor', 4);
+  ('a0000001-0000-4000-a000-000000000001', 'Retro Stickers', 'retro-stickers', 'Totally tubular sticker packs straight from the rad side of the 80s! Slap these bad boys on your laptop, skateboard, or boombox.', 'https://placehold.co/400x400/ff00ff/ffffff.png?text=Retro+Stickers', 1),
+  ('a0000001-0000-4000-a000-000000000002', 'Vintage Tech', 'vintage-tech', 'Radical retro tech vibes for the modern age! These gnarly gadgets and prints bring the synthwave aesthetic to your desk.', 'https://placehold.co/400x400/00ffff/0a0a1a.png?text=Vintage+Tech', 2),
+  ('a0000001-0000-4000-a000-000000000003', 'Apparel', 'apparel', 'Bodacious threads that scream 1985! Rock these fresh fits and let the world know you''re living in the best decade ever.', 'https://placehold.co/400x400/b100e8/ffffff.png?text=Apparel', 3),
+  ('a0000001-0000-4000-a000-000000000004', 'Home & Decor', 'home-decor', 'Transform your crib into a neon-soaked paradise! These righteous decor pieces bring the arcade to your living room.', 'https://placehold.co/400x400/ffe81f/0a0a1a.png?text=Home+Decor', 4);
 
 
 -- =====================
@@ -396,115 +396,115 @@ INSERT INTO variant_options (variant_id, option_name, option_value) VALUES
 
 -- VHS Vibes Sticker Pack
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000001-0000-4000-a000-000000000001', 'https://placehold.co/600x600/ff00ff/ffffff?text=VHS+Vibes', 'VHS Vibes Sticker Pack', 0, true),
-  ('b0000001-0000-4000-a000-000000000001', 'https://placehold.co/600x600/b100e8/ffffff?text=VHS+Detail', 'VHS Vibes sticker detail', 1, false),
-  ('b0000001-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=VHS+Pack', 'VHS Vibes full pack view', 2, false);
+  ('b0000001-0000-4000-a000-000000000001', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=VHS+Vibes', 'VHS Vibes Sticker Pack', 0, true),
+  ('b0000001-0000-4000-a000-000000000001', 'https://placehold.co/600x600/b100e8/ffffff.png?text=VHS+Detail', 'VHS Vibes sticker detail', 1, false),
+  ('b0000001-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=VHS+Pack', 'VHS Vibes full pack view', 2, false);
 
 -- Arcade Hero Sticker Sheet
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000001-0000-4000-a000-000000000002', 'https://placehold.co/600x600/00ffff/0a0a1a?text=Arcade+Hero', 'Arcade Hero Sticker Sheet', 0, true),
-  ('b0000001-0000-4000-a000-000000000002', 'https://placehold.co/600x600/ff00ff/ffffff?text=Arcade+Detail', 'Arcade Hero sticker detail', 1, false);
+  ('b0000001-0000-4000-a000-000000000002', 'https://placehold.co/600x600/00ffff/0a0a1a.png?text=Arcade+Hero', 'Arcade Hero Sticker Sheet', 0, true),
+  ('b0000001-0000-4000-a000-000000000002', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Arcade+Detail', 'Arcade Hero sticker detail', 1, false);
 
 -- Cassette Tape Holographic Sticker
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000001-0000-4000-a000-000000000003', 'https://placehold.co/600x600/b100e8/ffffff?text=Cassette+Holo', 'Cassette Tape Holographic Sticker', 0, true),
-  ('b0000001-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ffe81f/0a0a1a?text=Cassette+Shine', 'Holographic effect close-up', 1, false);
+  ('b0000001-0000-4000-a000-000000000003', 'https://placehold.co/600x600/b100e8/ffffff.png?text=Cassette+Holo', 'Cassette Tape Holographic Sticker', 0, true),
+  ('b0000001-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ffe81f/0a0a1a.png?text=Cassette+Shine', 'Holographic effect close-up', 1, false);
 
 -- Neon Grid Runner Sticker
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000001-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/00ffff?text=Grid+Runner', 'Neon Grid Runner Sticker', 0, true),
-  ('b0000001-0000-4000-a000-000000000004', 'https://placehold.co/600x600/ff00ff/ffffff?text=Runner+Detail', 'Grid Runner detail view', 1, false);
+  ('b0000001-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/00ffff.png?text=Grid+Runner', 'Neon Grid Runner Sticker', 0, true),
+  ('b0000001-0000-4000-a000-000000000004', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Runner+Detail', 'Grid Runner detail view', 1, false);
 
 -- Pixel Heart Sticker Bundle
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000001-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ff00ff/ffffff?text=Pixel+Hearts', 'Pixel Heart Sticker Bundle', 0, true),
-  ('b0000001-0000-4000-a000-000000000005', 'https://placehold.co/600x600/00ffff/0a0a1a?text=Hearts+Multi', 'Multi-color pixel hearts', 1, false),
-  ('b0000001-0000-4000-a000-000000000005', 'https://placehold.co/600x600/b100e8/ffffff?text=Hearts+Detail', 'Pixel Heart detail', 2, false);
+  ('b0000001-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Pixel+Hearts', 'Pixel Heart Sticker Bundle', 0, true),
+  ('b0000001-0000-4000-a000-000000000005', 'https://placehold.co/600x600/00ffff/0a0a1a.png?text=Hearts+Multi', 'Multi-color pixel hearts', 1, false),
+  ('b0000001-0000-4000-a000-000000000005', 'https://placehold.co/600x600/b100e8/ffffff.png?text=Hearts+Detail', 'Pixel Heart detail', 2, false);
 
 -- === VINTAGE TECH IMAGES ===
 
 -- Retro Wave Pixel Art Print
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000002-0000-4000-a000-000000000001', 'https://placehold.co/600x600/ff00ff/ffffff?text=Retro+Wave', 'Retro Wave Pixel Art Print', 0, true),
-  ('b0000002-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ffe81f?text=Wave+Framed', 'Retro Wave framed on wall', 1, false);
+  ('b0000002-0000-4000-a000-000000000001', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Retro+Wave', 'Retro Wave Pixel Art Print', 0, true),
+  ('b0000002-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ffe81f.png?text=Wave+Framed', 'Retro Wave framed on wall', 1, false);
 
 -- Synthwave Sunset Digital Frame
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000002-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Digital+Frame', 'Synthwave Sunset Digital Frame', 0, true),
-  ('b0000002-0000-4000-a000-000000000002', 'https://placehold.co/600x600/b100e8/ffffff?text=Frame+Side', 'Digital Frame side view', 1, false),
-  ('b0000002-0000-4000-a000-000000000002', 'https://placehold.co/600x600/00ffff/0a0a1a?text=Frame+Sunset', 'Sunset animation preview', 2, false);
+  ('b0000002-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Digital+Frame', 'Synthwave Sunset Digital Frame', 0, true),
+  ('b0000002-0000-4000-a000-000000000002', 'https://placehold.co/600x600/b100e8/ffffff.png?text=Frame+Side', 'Digital Frame side view', 1, false),
+  ('b0000002-0000-4000-a000-000000000002', 'https://placehold.co/600x600/00ffff/0a0a1a.png?text=Frame+Sunset', 'Sunset animation preview', 2, false);
 
 -- 8-Bit Sound Machine
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000002-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ffe81f/0a0a1a?text=8-Bit+Sound', '8-Bit Sound Machine', 0, true),
-  ('b0000002-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ff00ff/ffffff?text=Sound+Buttons', 'Sound Machine button detail', 1, false);
+  ('b0000002-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ffe81f/0a0a1a.png?text=8-Bit+Sound', '8-Bit Sound Machine', 0, true),
+  ('b0000002-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Sound+Buttons', 'Sound Machine button detail', 1, false);
 
 -- Neon Clock Widget
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000002-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/00ffff?text=Neon+Clock', 'Neon Clock Widget', 0, true),
-  ('b0000002-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Clock+Pink', 'Clock in hot pink mode', 1, false),
-  ('b0000002-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/ffe81f?text=Clock+Orange', 'Clock in sunset orange mode', 2, false);
+  ('b0000002-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/00ffff.png?text=Neon+Clock', 'Neon Clock Widget', 0, true),
+  ('b0000002-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Clock+Pink', 'Clock in hot pink mode', 1, false),
+  ('b0000002-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/ffe81f.png?text=Clock+Orange', 'Clock in sunset orange mode', 2, false);
 
 -- Retro Gaming Mousepad
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000002-0000-4000-a000-000000000005', 'https://placehold.co/600x600/0a0a1a/b100e8?text=Retro+Mousepad', 'Retro Gaming Mousepad', 0, true),
-  ('b0000002-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ff00ff/ffffff?text=Mousepad+Desk', 'Mousepad on desk setup', 1, false);
+  ('b0000002-0000-4000-a000-000000000005', 'https://placehold.co/600x600/0a0a1a/b100e8.png?text=Retro+Mousepad', 'Retro Gaming Mousepad', 0, true),
+  ('b0000002-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Mousepad+Desk', 'Mousepad on desk setup', 1, false);
 
 -- === APPAREL IMAGES ===
 
 -- Synthwave Sunset Tee
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000003-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Sunset+Tee', 'Synthwave Sunset Tee front', 0, true),
-  ('b0000003-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/00ffff?text=Tee+Back', 'Synthwave Sunset Tee back', 1, false),
-  ('b0000003-0000-4000-a000-000000000001', 'https://placehold.co/600x600/b100e8/ffffff?text=Tee+Detail', 'Print detail close-up', 2, false);
+  ('b0000003-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Sunset+Tee', 'Synthwave Sunset Tee front', 0, true),
+  ('b0000003-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/00ffff.png?text=Tee+Back', 'Synthwave Sunset Tee back', 1, false),
+  ('b0000003-0000-4000-a000-000000000001', 'https://placehold.co/600x600/b100e8/ffffff.png?text=Tee+Detail', 'Print detail close-up', 2, false);
 
 -- Neon Nights Hoodie
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000003-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/b100e8?text=Neon+Hoodie', 'Neon Nights Hoodie front', 0, true),
-  ('b0000003-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Hoodie+Back', 'Neon Nights Hoodie back', 1, false),
-  ('b0000003-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/00ffff?text=Hoodie+Glow', 'Blacklight reactive detail', 2, false);
+  ('b0000003-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/b100e8.png?text=Neon+Hoodie', 'Neon Nights Hoodie front', 0, true),
+  ('b0000003-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Hoodie+Back', 'Neon Nights Hoodie back', 1, false),
+  ('b0000003-0000-4000-a000-000000000002', 'https://placehold.co/600x600/0a0a1a/00ffff.png?text=Hoodie+Glow', 'Blacklight reactive detail', 2, false);
 
 -- Retro Arcade Cap
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000003-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ff00ff/ffffff?text=Arcade+Cap', 'Retro Arcade Cap front', 0, true),
-  ('b0000003-0000-4000-a000-000000000003', 'https://placehold.co/600x600/0a0a1a/ffe81f?text=Cap+Back', 'INSERT COIN back detail', 1, false);
+  ('b0000003-0000-4000-a000-000000000003', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Arcade+Cap', 'Retro Arcade Cap front', 0, true),
+  ('b0000003-0000-4000-a000-000000000003', 'https://placehold.co/600x600/0a0a1a/ffe81f.png?text=Cap+Back', 'INSERT COIN back detail', 1, false);
 
 -- Pixel Shades Sunglasses
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000003-0000-4000-a000-000000000004', 'https://placehold.co/600x600/ffe81f/0a0a1a?text=Pixel+Shades', 'Pixel Shades Sunglasses front', 0, true),
-  ('b0000003-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/ffe81f?text=Shades+Side', 'Pixel Shades side view', 1, false);
+  ('b0000003-0000-4000-a000-000000000004', 'https://placehold.co/600x600/ffe81f/0a0a1a.png?text=Pixel+Shades', 'Pixel Shades Sunglasses front', 0, true),
+  ('b0000003-0000-4000-a000-000000000004', 'https://placehold.co/600x600/0a0a1a/ffe81f.png?text=Shades+Side', 'Pixel Shades side view', 1, false);
 
 -- 80s Workout Headband
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000003-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ff00ff/ffe81f?text=80s+Headband', '80s Workout Headband', 0, true),
-  ('b0000003-0000-4000-a000-000000000005', 'https://placehold.co/600x600/00ffff/0a0a1a?text=Headband+Worn', 'Headband worn view', 1, false);
+  ('b0000003-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ff00ff/ffe81f.png?text=80s+Headband', '80s Workout Headband', 0, true),
+  ('b0000003-0000-4000-a000-000000000005', 'https://placehold.co/600x600/00ffff/0a0a1a.png?text=Headband+Worn', 'Headband worn view', 1, false);
 
 -- === HOME & DECOR IMAGES ===
 
 -- Neon Flamingo LED Sign
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000004-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Flamingo+LED', 'Neon Flamingo LED Sign lit', 0, true),
-  ('b0000004-0000-4000-a000-000000000001', 'https://placehold.co/600x600/ff00ff/ffffff?text=Flamingo+Off', 'Flamingo sign unlit', 1, false),
-  ('b0000004-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/b100e8?text=Flamingo+Room', 'Flamingo sign in room', 2, false);
+  ('b0000004-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Flamingo+LED', 'Neon Flamingo LED Sign lit', 0, true),
+  ('b0000004-0000-4000-a000-000000000001', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Flamingo+Off', 'Flamingo sign unlit', 1, false),
+  ('b0000004-0000-4000-a000-000000000001', 'https://placehold.co/600x600/0a0a1a/b100e8.png?text=Flamingo+Room', 'Flamingo sign in room', 2, false);
 
 -- Retro Grid Poster Set
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000004-0000-4000-a000-000000000002', 'https://placehold.co/600x600/b100e8/ffffff?text=Grid+Posters', 'Retro Grid Poster Set', 0, true),
-  ('b0000004-0000-4000-a000-000000000002', 'https://placehold.co/600x600/00ffff/0a0a1a?text=Poster+Cyan', 'Cyan grid poster detail', 1, false),
-  ('b0000004-0000-4000-a000-000000000002', 'https://placehold.co/600x600/ff00ff/ffffff?text=Poster+Pink', 'Pink grid poster detail', 2, false);
+  ('b0000004-0000-4000-a000-000000000002', 'https://placehold.co/600x600/b100e8/ffffff.png?text=Grid+Posters', 'Retro Grid Poster Set', 0, true),
+  ('b0000004-0000-4000-a000-000000000002', 'https://placehold.co/600x600/00ffff/0a0a1a.png?text=Poster+Cyan', 'Cyan grid poster detail', 1, false),
+  ('b0000004-0000-4000-a000-000000000002', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Poster+Pink', 'Pink grid poster detail', 2, false);
 
 -- VHS Tape Bookends
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000004-0000-4000-a000-000000000003', 'https://placehold.co/600x600/0a0a1a/ffe81f?text=VHS+Bookends', 'VHS Tape Bookends', 0, true),
-  ('b0000004-0000-4000-a000-000000000003', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Bookend+Detail', 'BE KIND label detail', 1, false);
+  ('b0000004-0000-4000-a000-000000000003', 'https://placehold.co/600x600/0a0a1a/ffe81f.png?text=VHS+Bookends', 'VHS Tape Bookends', 0, true),
+  ('b0000004-0000-4000-a000-000000000003', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Bookend+Detail', 'BE KIND label detail', 1, false);
 
 -- Arcade Cabinet Coasters
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000004-0000-4000-a000-000000000004', 'https://placehold.co/600x600/00ffff/0a0a1a?text=Arcade+Coasters', 'Arcade Cabinet Coasters set', 0, true),
-  ('b0000004-0000-4000-a000-000000000004', 'https://placehold.co/600x600/ff00ff/ffffff?text=Coaster+Detail', 'Single coaster detail', 1, false);
+  ('b0000004-0000-4000-a000-000000000004', 'https://placehold.co/600x600/00ffff/0a0a1a.png?text=Arcade+Coasters', 'Arcade Cabinet Coasters set', 0, true),
+  ('b0000004-0000-4000-a000-000000000004', 'https://placehold.co/600x600/ff00ff/ffffff.png?text=Coaster+Detail', 'Single coaster detail', 1, false);
 
 -- Synthwave Wall Clock
 INSERT INTO product_images (product_id, url, alt_text, position, is_primary) VALUES
-  ('b0000004-0000-4000-a000-000000000005', 'https://placehold.co/600x600/0a0a1a/00ffff?text=Synth+Clock', 'Synthwave Wall Clock front', 0, true),
-  ('b0000004-0000-4000-a000-000000000005', 'https://placehold.co/600x600/0a0a1a/ff00ff?text=Clock+Wall', 'Clock mounted on wall', 1, false),
-  ('b0000004-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ffe81f/0a0a1a?text=Clock+Detail', 'Chrome sun detail at 12 o''clock', 2, false);
+  ('b0000004-0000-4000-a000-000000000005', 'https://placehold.co/600x600/0a0a1a/00ffff.png?text=Synth+Clock', 'Synthwave Wall Clock front', 0, true),
+  ('b0000004-0000-4000-a000-000000000005', 'https://placehold.co/600x600/0a0a1a/ff00ff.png?text=Clock+Wall', 'Clock mounted on wall', 1, false),
+  ('b0000004-0000-4000-a000-000000000005', 'https://placehold.co/600x600/ffe81f/0a0a1a.png?text=Clock+Detail', 'Chrome sun detail at 12 o''clock', 2, false);
