@@ -43,7 +43,7 @@ export async function getProducts(
     .select(
       `
       id, slug, title, short_description, retail_price, compare_at_price,
-      brand, featured, created_at,
+      brand, featured, created_at, affiliate_url, source_platform,
       category:categories!category_id(name, slug),
       images:product_images!product_id(url, alt_text, is_primary),
       variants:product_variants!product_id(stock_quantity)
@@ -144,6 +144,8 @@ export async function getProducts(
       category_name: row.category?.name ?? null,
       category_slug: row.category?.slug ?? null,
       total_stock: totalStock,
+      affiliate_url: row.affiliate_url ?? null,
+      source_platform: row.source_platform ?? null,
     };
   });
 
@@ -167,7 +169,7 @@ export async function getFeaturedProducts(): Promise<ProductCard[]> {
     .select(
       `
       id, slug, title, short_description, retail_price, compare_at_price,
-      brand, featured, created_at,
+      brand, featured, created_at, affiliate_url, source_platform,
       category:categories!category_id(name, slug),
       images:product_images!product_id(url, alt_text, is_primary),
       variants:product_variants!product_id(stock_quantity)
@@ -204,6 +206,8 @@ export async function getFeaturedProducts(): Promise<ProductCard[]> {
       category_name: row.category?.name ?? null,
       category_slug: row.category?.slug ?? null,
       total_stock: totalStock,
+      affiliate_url: row.affiliate_url ?? null,
+      source_platform: row.source_platform ?? null,
     };
   });
 }
@@ -323,7 +327,7 @@ export async function searchProducts(
     .select(
       `
       id, slug, title, short_description, retail_price, compare_at_price,
-      brand, featured,
+      brand, featured, affiliate_url, source_platform,
       images:product_images!product_id(url, alt_text, is_primary),
       variants:product_variants!product_id(stock_quantity)
     `
@@ -361,6 +365,8 @@ export async function searchProducts(
       category_name: null,
       category_slug: null,
       total_stock: totalStock,
+      affiliate_url: row.affiliate_url ?? null,
+      source_platform: row.source_platform ?? null,
     };
   });
 }

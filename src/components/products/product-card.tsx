@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ShoppingCart } from "lucide-react";
+import { ShoppingCart, ExternalLink } from 'lucide-react'
 import { Badge } from "@/components/ui/badge";
+import { Button } from '@/components/ui/button'
 import type { ProductCard as ProductCardType } from "@/types";
 import { formatPrice } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
@@ -102,6 +103,18 @@ export function ProductCard({ product }: ProductCardProps) {
           </div>
 
           <AddToCartButton product={product} size="icon" />
+          {product.affiliate_url && (
+            <Button size="icon" variant="ghost" asChild>
+              <a
+                href={product.affiliate_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Buy ${product.title} on ${product.source_platform ?? 'store'}`}
+              >
+                <ExternalLink className="size-4" />
+              </a>
+            </Button>
+          )}
         </div>
       </div>
     </div>

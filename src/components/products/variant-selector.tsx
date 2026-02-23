@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShoppingCart } from "lucide-react";
+import { ShoppingCart, ExternalLink } from 'lucide-react'
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,17 @@ import { useCartStore } from "@/lib/stores/cart-store";
 import { formatPrice } from "@/lib/utils";
 import type { ProductWithDetails } from "@/types";
 import { toast } from "sonner";
+
+function platformLabel(platform: string | null): string {
+  switch (platform) {
+    case 'amazon':
+      return 'Amazon'
+    case 'aliexpress':
+      return 'AliExpress'
+    default:
+      return 'Store'
+  }
+}
 
 interface VariantSelectorProps {
   product: ProductWithDetails;
@@ -71,8 +82,7 @@ export function VariantSelector({ product }: VariantSelectorProps) {
         {product.compare_at_price &&
           product.compare_at_price > effectivePrice && (
             <Badge className="bg-[hsl(60_100%_50%)] text-[hsl(240_20%_4%)] text-[10px] font-bold">
-              SAVE{" "}
-              {formatPrice(product.compare_at_price - effectivePrice)}
+              SAVE {formatPrice(product.compare_at_price - effectivePrice)}
             </Badge>
           )}
       </div>
@@ -81,31 +91,31 @@ export function VariantSelector({ product }: VariantSelectorProps) {
       {product.variants.length > 1 && (
         <div className="space-y-3">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            {selectedVariant?.title ?? "Select variant"}
+            {selectedVariant?.title ?? 'Select variant'}
           </Label>
           <div className="flex flex-wrap gap-2">
             {product.variants.map((variant) => {
-              const out = variant.stock_quantity <= 0;
+              const out = variant.stock_quantity <= 0
               return (
                 <Button
                   key={variant.id}
                   variant={
-                    variant.id === selectedVariantId ? "default" : "outline"
+                    variant.id === selectedVariantId ? 'default' : 'outline'
                   }
                   size="sm"
                   disabled={out}
                   onClick={() => {
-                    setSelectedVariantId(variant.id);
-                    setQuantity(1);
+                    setSelectedVariantId(variant.id)
+                    setQuantity(1)
                   }}
                   className={
-                    variant.id === selectedVariantId ? "neon-glow" : ""
+                    variant.id === selectedVariantId ? 'neon-glow' : ''
                   }
                 >
                   {variant.title}
-                  {out && " (Sold Out)"}
+                  {out && ' (Sold Out)'}
                 </Button>
-              );
+              )
             })}
           </div>
         </div>
@@ -140,13 +150,15 @@ export function VariantSelector({ product }: VariantSelectorProps) {
           >
             −
           </Button>
-          <span className="w-10 text-center text-sm font-medium">{quantity}</span>
+          <span className="w-10 text-center text-sm font-medium">
+            {quantity}
+          </span>
           <Button
             variant="outline"
             size="icon"
             onClick={() =>
               setQuantity((q) =>
-                Math.min(selectedVariant?.stock_quantity ?? 1, q + 1)
+                Math.min(selectedVariant?.stock_quantity ?? 1, q + 1),
               )
             }
             disabled={quantity >= (selectedVariant?.stock_quantity ?? 1)}
@@ -156,16 +168,33 @@ export function VariantSelector({ product }: VariantSelectorProps) {
         </div>
       </div>
 
-      {/* Add to Cart */}
-      <Button
-        size="lg"
-        className="w-full font-heading text-xs transition-shadow hover:neon-glow"
-        disabled={isOutOfStock}
-        onClick={handleAddToCart}
-      >
-        <ShoppingCart className="mr-2 size-4" />
-        {isOutOfStock ? "SOLD OUT" : "ADD TO CART"}
-      </Button>
+      {/* Buy / Add to Cart */}
+      {product.affiliate_url ? (
+        <Button
+          size="lg"
+          className="w-full font-heading text-xs transition-shadow hover:neon-glow"
+          asChild
+        >
+          <a
+            href={product.affiliate_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ExternalLink className="mr-2 size-4" />
+            BUY ON {platformLabel(product.source_platform).toUpperCase()}
+          </a>
+        </Button>
+      ) : (
+        <Button
+          size="lg"
+          className="w-full font-heading text-xs transition-shadow hover:neon-glow"
+          disabled={isOutOfStock}
+          onClick={handleAddToCart}
+        >
+          <ShoppingCart className="mr-2 size-4" />
+          {isOutOfStock ? 'SOLD OUT' : 'ADD TO CART'}
+        </Button>
+      )}
     </div>
-  );
+  )
 }

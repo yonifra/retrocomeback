@@ -29,6 +29,9 @@ export interface Product {
   seo_title: string | null;
   seo_description: string | null;
   search_vector: string | null;
+  affiliate_url: string | null;
+  source_url: string | null;
+  source_platform: "amazon" | "aliexpress" | "other" | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +89,8 @@ export interface ProductCard {
   category_name: string | null;
   category_slug: string | null;
   total_stock: number;
+  affiliate_url: string | null;
+  source_platform: "amazon" | "aliexpress" | "other" | null;
 }
 
 export interface Profile {
