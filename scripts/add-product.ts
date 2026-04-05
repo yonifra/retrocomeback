@@ -22,54 +22,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-
-// ── Affiliate URL helpers ───────────────────────────────────────────
-
-function detectPlatform(url: string): "amazon" | "aliexpress" | "other" {
-  const hostname = new URL(url).hostname.toLowerCase();
-  if (hostname.includes("amazon.") || hostname.includes("amzn.")) return "amazon";
-  if (hostname.includes("aliexpress.")) return "aliexpress";
-  return "other";
-}
-
-function buildAffiliateUrl(
-  sourceUrl: string,
-  platform: "amazon" | "aliexpress" | "other"
-): string {
-  const parsed = new URL(sourceUrl);
-
-  switch (platform) {
-    case "amazon": {
-      const tag = process.env.AMAZON_AFFILIATE_TAG;
-      if (!tag) {
-        console.warn("⚠  AMAZON_AFFILIATE_TAG not set – URL will NOT contain your affiliate tag");
-        return sourceUrl;
-      }
-      parsed.searchParams.set("tag", tag);
-      return parsed.toString();
-    }
-    case "aliexpress": {
-      const affId = process.env.ALIEXPRESS_AFFILIATE_ID;
-      if (!affId) {
-        console.warn("⚠  ALIEXPRESS_AFFILIATE_ID not set – URL will NOT contain your affiliate ID");
-        return sourceUrl;
-      }
-      // AliExpress deep-link format
-      parsed.searchParams.set("aff_id", affId);
-      parsed.searchParams.set("aff_platform", "portals-tool");
-      return parsed.toString();
-    }
-    default:
-      return sourceUrl;
-  }
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+import { detectPlatform, buildAffiliateUrl, slugify } from "../src/lib/affiliate";
 
 // ── CLI arg parsing (no extra deps) ─────────────────────────────────
 

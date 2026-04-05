@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from '@/components/ui/button'
 import type { ProductCard as ProductCardType } from "@/types";
 import { formatPrice } from "@/lib/utils";
+import { platformLabel } from "@/lib/affiliate";
 import { AddToCartButton } from "./add-to-cart-button";
 
 interface ProductCardProps {
@@ -102,18 +103,20 @@ export function ProductCard({ product }: ProductCardProps) {
             )}
           </div>
 
-          <AddToCartButton product={product} size="icon" />
-          {product.affiliate_url && (
-            <Button size="icon" variant="ghost" asChild>
+          {product.affiliate_url ? (
+            <Button size="sm" variant="ghost" asChild className="gap-1.5 text-xs">
               <a
                 href={product.affiliate_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={`Buy ${product.title} on ${product.source_platform ?? 'store'}`}
+                aria-label={`Buy ${product.title} on ${platformLabel(product.source_platform)}`}
               >
-                <ExternalLink className="size-4" />
+                <ExternalLink className="size-3.5" />
+                BUY
               </a>
             </Button>
+          ) : (
+            <AddToCartButton product={product} size="icon" />
           )}
         </div>
       </div>

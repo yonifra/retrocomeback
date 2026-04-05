@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getUserMarketplaces } from "@/lib/queries/marketplaces";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
-import { Package, Puzzle, ArrowRight } from "lucide-react";
+import { Package, Puzzle, ArrowRight, Plus } from "lucide-react";
 
 export default async function AccountPage() {
   const supabase = await createClient();
@@ -98,6 +98,24 @@ export default async function AccountPage() {
               </div>
             </div>
             <ArrowRight className="size-4 text-muted-foreground transition-colors group-hover:text-accent" />
+          </Link>
+
+          <Link
+            href="/account/add-product"
+            className="group flex items-center justify-between rounded-md border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-[0_0_15px_hsl(300_100%_50%/0.1)]"
+          >
+            <div className="flex items-center gap-3">
+              <Plus className="size-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Add Affiliate Product
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Import a product from AliExpress or Amazon
+                </p>
+              </div>
+            </div>
+            <ArrowRight className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
           </Link>
         </div>
       </div>
