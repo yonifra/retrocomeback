@@ -1,13 +1,18 @@
 "use client";
 
-import { useActionState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { login, loginWithGoogle, type AuthResult } from "../actions";
+import {
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from "firebase/auth";
+import { auth } from "@/lib/firebase/client";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -20,21 +25,99 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
+async function createServerSession(idToken: string): Promise<boolean> {
+  const res = await fetch("/api/auth/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  return res.ok;
+}
+
 export function LoginForm() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const redirectTo = searchParams.get("redirectTo") || "/";
   const message = searchParams.get("message");
   const errorParam = searchParams.get("error");
 
-  const [state, formAction, isPending] = useActionState<AuthResult, FormData>(
-    async (_prevState: AuthResult, formData: FormData) => {
-      formData.set("redirectTo", redirectTo);
-      return login(formData);
-    },
-    {}
-  );
+  const [error, setError] = useState<string | null>(errorParam);
+  const [isPending, setIsPending] = useState(false);
+  const [isGooglePending, setIsGooglePending] = useState(false);
 
-  const error = state?.error || errorParam;
+  async function handleEmailLogin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setIsPending(true);
+
+    try {
+      const formData = new FormData(e.currentTarget);
+      const email = formData.get("email") as string;
+      const password = formData.get("password") as string;
+
+      if (!email || !password) {
+        setError("Email and password are required");
+        setIsPending(false);
+        return;
+      }
+
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await credential.user.getIdToken();
+      const ok = await createServerSession(idToken);
+
+      if (!ok) {
+        setError("Failed to create session");
+        setIsPending(false);
+        return;
+      }
+
+      router.push(redirectTo);
+      router.refresh();
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      if (
+        firebaseError.code === "auth/user-not-found" ||
+        firebaseError.code === "auth/wrong-password" ||
+        firebaseError.code === "auth/invalid-credential"
+      ) {
+        setError("Invalid email or password");
+      } else if (firebaseError.code === "auth/too-many-requests") {
+        setError("Too many attempts. Please try again later.");
+      } else {
+        setError(firebaseError.message ?? "Sign in failed");
+      }
+      setIsPending(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setError(null);
+    setIsGooglePending(true);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      const credential = await signInWithPopup(auth, provider);
+      const idToken = await credential.user.getIdToken();
+      const ok = await createServerSession(idToken);
+
+      if (!ok) {
+        setError("Failed to create session");
+        setIsGooglePending(false);
+        return;
+      }
+
+      router.push(redirectTo);
+      router.refresh();
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      if (firebaseError.code === "auth/popup-closed-by-user") {
+        // User closed the popup — not an error
+      } else {
+        setError(firebaseError.message ?? "Google sign in failed");
+      }
+      setIsGooglePending(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -61,16 +144,20 @@ export function LoginForm() {
         )}
 
         {/* Google OAuth */}
-        <form action={loginWithGoogle}>
-          <Button
-            type="submit"
-            variant="outline"
-            className="w-full gap-2 border-border bg-secondary hover:bg-muted hover:neon-glow-cyan"
-          >
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full gap-2 border-border bg-secondary hover:bg-muted hover:neon-glow-cyan"
+          onClick={handleGoogleLogin}
+          disabled={isGooglePending || isPending}
+        >
+          {isGooglePending ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : (
             <GoogleIcon className="size-5" />
-            <span className="text-sm">Continue with Google</span>
-          </Button>
-        </form>
+          )}
+          <span className="text-sm">Continue with Google</span>
+        </Button>
 
         {/* Divider */}
         <div className="relative my-6">
@@ -85,7 +172,7 @@ export function LoginForm() {
         </div>
 
         {/* Email/Password Form */}
-        <form action={formAction} className="space-y-4">
+        <form onSubmit={handleEmailLogin} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email" className="text-sm text-foreground">
               Email
@@ -126,7 +213,7 @@ export function LoginForm() {
 
           <Button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || isGooglePending}
             className="w-full neon-glow"
           >
             {isPending ? (

@@ -1,22 +1,56 @@
-import { createClient } from "@/lib/supabase/server";
+import { adminDb } from "@/lib/firebase/admin";
 import type {
   ProductCard,
   ProductWithDetails,
   Category,
   PaginatedResult,
-  VariantOption,
 } from "@/types";
 import type { ProductFilterParams } from "@/lib/validators/product";
 
 const PRODUCTS_PER_PAGE = 12;
 
-/** Try to create a Supabase client; returns null if env vars are missing. */
-async function getSupabase() {
-  try {
-    return await createClient();
-  } catch {
-    return null;
-  }
+/**
+ * Check if Firestore is configured. Returns false if env vars are missing.
+ */
+function isConfigured(): boolean {
+  return !!(
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID
+  );
+}
+
+/**
+ * Convert a Firestore product document + its subcollections into a ProductCard.
+ */
+function toProductCard(
+  id: string,
+  data: FirebaseFirestore.DocumentData,
+  images: FirebaseFirestore.DocumentData[],
+  variants: FirebaseFirestore.DocumentData[],
+): ProductCard {
+  const primaryImage = images.find((img) => img.is_primary) ?? images[0];
+  const totalStock = variants.reduce(
+    (sum, v) => sum + (v.stock_quantity ?? 0),
+    0,
+  );
+
+  return {
+    id,
+    slug: data.slug,
+    title: data.title,
+    short_description: data.short_description ?? null,
+    retail_price: Number(data.retail_price),
+    compare_at_price: data.compare_at_price ? Number(data.compare_at_price) : null,
+    brand: data.brand ?? null,
+    featured: data.featured ?? false,
+    primary_image: primaryImage?.url ?? null,
+    primary_image_alt: primaryImage?.alt_text ?? null,
+    category_name: data.category_name ?? null,
+    category_slug: data.category_slug ?? null,
+    total_stock: totalStock,
+    affiliate_url: data.affiliate_url ?? null,
+    source_platform: data.source_platform ?? null,
+  };
 }
 
 /**
@@ -24,192 +58,137 @@ async function getSupabase() {
  * Supports filtering, sorting, searching, and pagination.
  */
 export async function getProducts(
-  params: Partial<ProductFilterParams> = {}
+  params: Partial<ProductFilterParams> = {},
 ): Promise<PaginatedResult<ProductCard>> {
-  const supabase = await getSupabase();
   const page = params.page ?? 1;
   const pageSize = PRODUCTS_PER_PAGE;
 
-  if (!supabase) {
+  if (!isConfigured()) {
     return { data: [], total: 0, page, pageSize, totalPages: 0 };
   }
 
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  try {
+    let query: FirebaseFirestore.Query = adminDb
+      .collection("products")
+      .where("status", "==", "active");
 
-  // Build base query
-  let query = supabase
-    .from("products")
-    .select(
-      `
-      id, slug, title, short_description, retail_price, compare_at_price,
-      brand, featured, created_at, affiliate_url, source_platform,
-      category:categories!category_id(name, slug),
-      images:product_images!product_id(url, alt_text, is_primary),
-      variants:product_variants!product_id(stock_quantity)
-    `,
-      { count: "exact" }
-    )
-    .eq("status", "active");
-
-  // Full-text search
-  if (params.q) {
-    query = query.textSearch("search_vector", params.q, {
-      type: "websearch",
-      config: "english",
-    });
-  }
-
-  // Category filter
-  if (params.category) {
-    // First resolve category id from slug
-    const { data: cat } = await supabase
-      .from("categories")
-      .select("id")
-      .eq("slug", params.category)
-      .single();
-    if (cat) {
-      query = query.eq("category_id", cat.id);
+    // Category filter
+    if (params.category) {
+      query = query.where("category_slug", "==", params.category);
     }
-  }
 
-  // Brand filter
-  if (params.brand) {
-    query = query.eq("brand", params.brand);
-  }
+    // Brand filter
+    if (params.brand) {
+      query = query.where("brand", "==", params.brand);
+    }
 
-  // Price range
-  if (params.minPrice !== undefined) {
-    query = query.gte("retail_price", params.minPrice);
-  }
-  if (params.maxPrice !== undefined) {
-    query = query.lte("retail_price", params.maxPrice);
-  }
+    // Sorting
+    switch (params.sort) {
+      case "price-asc":
+        query = query.orderBy("retail_price", "asc");
+        break;
+      case "price-desc":
+        query = query.orderBy("retail_price", "desc");
+        break;
+      case "name-asc":
+        query = query.orderBy("title", "asc");
+        break;
+      case "newest":
+      default:
+        query = query.orderBy("created_at", "desc");
+        break;
+    }
 
-  // Tags filter
-  if (params.tags && params.tags.length > 0) {
-    query = query.overlaps("tags", params.tags);
-  }
+    // Get total count
+    const countSnap = await query.count().get();
+    const total = countSnap.data().count;
 
-  // Sorting
-  switch (params.sort) {
-    case "price-asc":
-      query = query.order("retail_price", { ascending: true });
-      break;
-    case "price-desc":
-      query = query.order("retail_price", { ascending: false });
-      break;
-    case "name-asc":
-      query = query.order("title", { ascending: true });
-      break;
-    case "newest":
-    default:
-      query = query.order("created_at", { ascending: false });
-      break;
-  }
+    // Pagination
+    const offset = (page - 1) * pageSize;
+    const snap = await query.offset(offset).limit(pageSize).get();
 
-  // Pagination
-  query = query.range(from, to);
+    const products: ProductCard[] = [];
+    for (const doc of snap.docs) {
+      const data = doc.data();
 
-  const { data, count, error } = await query;
+      // Price range filters (applied in-app since Firestore can't combine
+      // range filters on different fields with inequality)
+      if (params.minPrice !== undefined && Number(data.retail_price) < params.minPrice) continue;
+      if (params.maxPrice !== undefined && Number(data.retail_price) > params.maxPrice) continue;
 
-  if (error) {
+      // Simple text search (case-insensitive substring match on title)
+      if (params.q) {
+        const q = params.q.toLowerCase();
+        const matchesTitle = (data.title ?? "").toLowerCase().includes(q);
+        const matchesDesc = (data.short_description ?? "").toLowerCase().includes(q);
+        const matchesBrand = (data.brand ?? "").toLowerCase().includes(q);
+        if (!matchesTitle && !matchesDesc && !matchesBrand) continue;
+      }
+
+      const imagesSnap = await adminDb
+        .collection("products")
+        .doc(doc.id)
+        .collection("images")
+        .orderBy("position")
+        .get();
+      const images = imagesSnap.docs.map((d) => d.data());
+
+      const variantsSnap = await adminDb
+        .collection("products")
+        .doc(doc.id)
+        .collection("variants")
+        .get();
+      const variants = variantsSnap.docs.map((d) => d.data());
+
+      products.push(toProductCard(doc.id, data, images, variants));
+    }
+
+    return {
+      data: products,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  } catch (error) {
     console.error("Error fetching products:", error);
     return { data: [], total: 0, page, pageSize, totalPages: 0 };
   }
-
-  const total = count ?? 0;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const products: ProductCard[] = (data ?? []).map((row: any) => {
-    const primaryImage = row.images?.find((img: { is_primary: boolean }) => img.is_primary);
-    const firstImage = row.images?.[0];
-    const image = primaryImage || firstImage;
-    const totalStock = row.variants?.reduce(
-      (sum: number, v: { stock_quantity: number }) => sum + v.stock_quantity,
-      0
-    ) ?? 0;
-
-    return {
-      id: row.id,
-      slug: row.slug,
-      title: row.title,
-      short_description: row.short_description,
-      retail_price: Number(row.retail_price),
-      compare_at_price: row.compare_at_price ? Number(row.compare_at_price) : null,
-      brand: row.brand,
-      featured: row.featured,
-      primary_image: image?.url ?? null,
-      primary_image_alt: image?.alt_text ?? null,
-      category_name: row.category?.name ?? null,
-      category_slug: row.category?.slug ?? null,
-      total_stock: totalStock,
-      affiliate_url: row.affiliate_url ?? null,
-      source_platform: row.source_platform ?? null,
-    };
-  });
-
-  return {
-    data: products,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize),
-  };
 }
 
 /**
  * Fetch featured products for the homepage.
  */
 export async function getFeaturedProducts(): Promise<ProductCard[]> {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("products")
-    .select(
-      `
-      id, slug, title, short_description, retail_price, compare_at_price,
-      brand, featured, created_at, affiliate_url, source_platform,
-      category:categories!category_id(name, slug),
-      images:product_images!product_id(url, alt_text, is_primary),
-      variants:product_variants!product_id(stock_quantity)
-    `
-    )
-    .eq("status", "active")
-    .eq("featured", true)
-    .order("created_at", { ascending: false })
-    .limit(8);
+  if (!isConfigured()) return [];
 
-  if (error || !data) return [];
+  try {
+    const snap = await adminDb
+      .collection("products")
+      .where("status", "==", "active")
+      .where("featured", "==", true)
+      .orderBy("created_at", "desc")
+      .limit(8)
+      .get();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.map((row: any) => {
-    const primaryImage = row.images?.find((img: { is_primary: boolean }) => img.is_primary);
-    const image = primaryImage || row.images?.[0];
-    const totalStock =
-      row.variants?.reduce(
-        (sum: number, v: { stock_quantity: number }) => sum + v.stock_quantity,
-        0
-      ) ?? 0;
+    const products: ProductCard[] = [];
+    for (const doc of snap.docs) {
+      const data = doc.data();
 
-    return {
-      id: row.id,
-      slug: row.slug,
-      title: row.title,
-      short_description: row.short_description,
-      retail_price: Number(row.retail_price),
-      compare_at_price: row.compare_at_price ? Number(row.compare_at_price) : null,
-      brand: row.brand,
-      featured: row.featured,
-      primary_image: image?.url ?? null,
-      primary_image_alt: image?.alt_text ?? null,
-      category_name: row.category?.name ?? null,
-      category_slug: row.category?.slug ?? null,
-      total_stock: totalStock,
-      affiliate_url: row.affiliate_url ?? null,
-      source_platform: row.source_platform ?? null,
-    };
-  });
+      const imagesSnap = await doc.ref.collection("images").orderBy("position").get();
+      const images = imagesSnap.docs.map((d) => d.data());
+
+      const variantsSnap = await doc.ref.collection("variants").get();
+      const variants = variantsSnap.docs.map((d) => d.data());
+
+      products.push(toProductCard(doc.id, data, images, variants));
+    }
+
+    return products;
+  } catch (error) {
+    console.error("Error fetching featured products:", error);
+    return [];
+  }
 }
 
 /**
@@ -224,149 +203,182 @@ export async function getNewArrivals(): Promise<ProductCard[]> {
  * Fetch a single product with full details by slug.
  */
 export async function getProductBySlug(
-  slug: string
+  slug: string,
 ): Promise<ProductWithDetails | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data, error } = await supabase
-    .from("products")
-    .select(
-      `
-      *,
-      category:categories!category_id(*),
-      images:product_images!product_id(*),
-      variants:product_variants!product_id(
-        *,
-        options:variant_options!variant_id(*)
-      )
-    `
-    )
-    .eq("slug", slug)
-    .eq("status", "active")
-    .single();
+  try {
+    const snap = await adminDb
+      .collection("products")
+      .where("slug", "==", slug)
+      .where("status", "==", "active")
+      .limit(1)
+      .get();
 
-  if (error || !data) return null;
+    if (snap.empty) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const product = data as any;
+    const doc = snap.docs[0];
+    const data = doc.data();
 
-  return {
-    ...product,
-    retail_price: Number(product.retail_price),
-    compare_at_price: product.compare_at_price
-      ? Number(product.compare_at_price)
-      : null,
-    category: product.category ?? null,
-    images: (product.images ?? []).sort(
-      (a: { position: number }, b: { position: number }) =>
-        a.position - b.position
-    ),
-    variants: (product.variants ?? [])
-      .sort(
-        (a: { sort_order: number }, b: { sort_order: number }) =>
-          a.sort_order - b.sort_order
-      )
-      .map((v: { price_override: number | null; stock_quantity: number; weight: number | null; options: VariantOption[] }) => ({
-        ...v,
-        price_override: v.price_override ? Number(v.price_override) : null,
-        stock_quantity: Number(v.stock_quantity),
-        weight: v.weight ? Number(v.weight) : null,
-        options: v.options ?? [],
-      })),
-  } as ProductWithDetails;
+    // Fetch images
+    const imagesSnap = await doc.ref
+      .collection("images")
+      .orderBy("position")
+      .get();
+    const images = imagesSnap.docs.map((d) => ({
+      id: d.id,
+      product_id: doc.id,
+      ...d.data(),
+    }));
+
+    // Fetch variants with their options
+    const variantsSnap = await doc.ref
+      .collection("variants")
+      .orderBy("sort_order")
+      .get();
+
+    const variants = [];
+    for (const vDoc of variantsSnap.docs) {
+      const vData = vDoc.data();
+      const optionsSnap = await vDoc.ref.collection("options").get();
+      const options = optionsSnap.docs.map((oDoc) => ({
+        id: oDoc.id,
+        variant_id: vDoc.id,
+        ...oDoc.data(),
+      }));
+
+      variants.push({
+        id: vDoc.id,
+        product_id: doc.id,
+        ...vData,
+        price_override: vData.price_override ? Number(vData.price_override) : null,
+        stock_quantity: Number(vData.stock_quantity ?? 0),
+        weight: vData.weight ? Number(vData.weight) : null,
+        options,
+      });
+    }
+
+    // Fetch category
+    let category = null;
+    if (data.category_id) {
+      const catDoc = await adminDb.collection("categories").doc(data.category_id).get();
+      if (catDoc.exists) {
+        category = { id: catDoc.id, ...catDoc.data() };
+      }
+    }
+
+    return {
+      id: doc.id,
+      ...data,
+      retail_price: Number(data.retail_price),
+      compare_at_price: data.compare_at_price ? Number(data.compare_at_price) : null,
+      category,
+      images,
+      variants,
+    } as ProductWithDetails;
+  } catch (error) {
+    console.error("Error fetching product by slug:", error);
+    return null;
+  }
 }
 
 /**
  * Fetch all categories.
  */
 export async function getCategories(): Promise<Category[]> {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
+  if (!isConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from("categories")
-    .select("*")
-    .order("sort_order", { ascending: true });
+  try {
+    const snap = await adminDb
+      .collection("categories")
+      .orderBy("sort_order")
+      .get();
 
-  if (error || !data) return [];
-  return data as Category[];
+    return snap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Category[];
+  } catch (error) {
+    console.error("Error fetching categories:", error);
+    return [];
+  }
 }
 
 /**
  * Fetch all distinct brands from active products.
  */
 export async function getBrands(): Promise<string[]> {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
+  if (!isConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from("products")
-    .select("brand")
-    .eq("status", "active")
-    .not("brand", "is", null);
+  try {
+    const snap = await adminDb
+      .collection("products")
+      .where("status", "==", "active")
+      .select("brand")
+      .get();
 
-  if (error || !data) return [];
+    const brands = new Set<string>();
+    for (const doc of snap.docs) {
+      const brand = doc.data().brand;
+      if (brand) brands.add(brand);
+    }
 
-  const brands = [...new Set(data.map((p) => p.brand as string))].sort();
-  return brands;
+    return [...brands].sort();
+  } catch (error) {
+    console.error("Error fetching brands:", error);
+    return [];
+  }
 }
 
 /**
- * Search products using full-text search.
+ * Search products using simple text matching.
+ * (Firestore doesn't have full-text search; for production use Algolia/Typesense.)
  */
 export async function searchProducts(
   query: string,
-  limit = 5
+  limit = 5,
 ): Promise<ProductCard[]> {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
+  if (!isConfigured() || !query) return [];
 
-  const { data, error } = await supabase
-    .from("products")
-    .select(
-      `
-      id, slug, title, short_description, retail_price, compare_at_price,
-      brand, featured, affiliate_url, source_platform,
-      images:product_images!product_id(url, alt_text, is_primary),
-      variants:product_variants!product_id(stock_quantity)
-    `
-    )
-    .eq("status", "active")
-    .textSearch("search_vector", query, {
-      type: "websearch",
-      config: "english",
-    })
-    .limit(limit);
+  try {
+    // Firestore doesn't support full-text search natively.
+    // We fetch active products and filter in-app.
+    // For production, integrate Algolia or Typesense.
+    const snap = await adminDb
+      .collection("products")
+      .where("status", "==", "active")
+      .orderBy("created_at", "desc")
+      .limit(100) // cap to avoid scanning too many docs
+      .get();
 
-  if (error || !data) return [];
+    const q = query.toLowerCase();
+    const results: ProductCard[] = [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.map((row: any) => {
-    const primaryImage = row.images?.find((img: { is_primary: boolean }) => img.is_primary);
-    const image = primaryImage || row.images?.[0];
-    const totalStock =
-      row.variants?.reduce(
-        (sum: number, v: { stock_quantity: number }) => sum + v.stock_quantity,
-        0
-      ) ?? 0;
+    for (const doc of snap.docs) {
+      if (results.length >= limit) break;
 
-    return {
-      id: row.id,
-      slug: row.slug,
-      title: row.title,
-      short_description: row.short_description,
-      retail_price: Number(row.retail_price),
-      compare_at_price: row.compare_at_price ? Number(row.compare_at_price) : null,
-      brand: row.brand,
-      featured: row.featured,
-      primary_image: image?.url ?? null,
-      primary_image_alt: image?.alt_text ?? null,
-      category_name: null,
-      category_slug: null,
-      total_stock: totalStock,
-      affiliate_url: row.affiliate_url ?? null,
-      source_platform: row.source_platform ?? null,
-    };
-  });
+      const data = doc.data();
+      const matchesTitle = (data.title ?? "").toLowerCase().includes(q);
+      const matchesDesc = (data.short_description ?? "").toLowerCase().includes(q);
+      const matchesBrand = (data.brand ?? "").toLowerCase().includes(q);
+      const matchesTags = (data.tags ?? []).some((t: string) =>
+        t.toLowerCase().includes(q),
+      );
+
+      if (!matchesTitle && !matchesDesc && !matchesBrand && !matchesTags) continue;
+
+      const imagesSnap = await doc.ref.collection("images").orderBy("position").get();
+      const images = imagesSnap.docs.map((d) => d.data());
+
+      const variantsSnap = await doc.ref.collection("variants").get();
+      const variants = variantsSnap.docs.map((d) => d.data());
+
+      results.push(toProductCard(doc.id, data, images, variants));
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error searching products:", error);
+    return [];
+  }
 }

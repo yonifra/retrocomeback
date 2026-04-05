@@ -1,29 +1,13 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 
+/**
+ * GET /api/auth/callback
+ *
+ * This route was used by Supabase OAuth. With Firebase, OAuth is handled
+ * entirely client-side via signInWithPopup/signInWithRedirect.
+ * This route now just redirects to the homepage.
+ */
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
-
-  if (code) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (!error) {
-      const forwardedHost = request.headers.get("x-forwarded-host");
-      const isLocalEnv = process.env.NODE_ENV === "development";
-
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`);
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`);
-      } else {
-        return NextResponse.redirect(`${origin}${next}`);
-      }
-    }
-  }
-
-  // Auth code error — redirect to login with error
-  return NextResponse.redirect(`${origin}/login?error=Could not authenticate`);
+  const { origin } = new URL(request.url);
+  return NextResponse.redirect(`${origin}/`);
 }

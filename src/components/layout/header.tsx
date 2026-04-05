@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Search, ShoppingCart, User, Menu, LogOut, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { MobileNav } from "./mobile-nav";
-import { createClient } from "@/lib/supabase/client";
-import { logout } from "@/app/(auth)/actions";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase/client";
 
 interface HeaderProps {
   initialUserEmail?: string | null;
@@ -27,36 +28,38 @@ export function Header({ initialUserEmail = null }: HeaderProps) {
   const totalItems = useCartStore((state) => state.totalItems());
   const openCart = useCartStore((state) => state.openCart);
   const [userEmail, setUserEmail] = useState<string | null>(initialUserEmail);
+  const router = useRouter();
 
   useEffect(() => {
     let mounted = true;
-    try {
-      const supabase = createClient();
 
-      // Only listen for auth state CHANGES (login/logout).
-      // We don't call getSession() here because the server already
-      // provided the initial state via initialUserEmail — calling
-      // getSession() can return null and overwrite the valid server value.
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((event, session) => {
-        // Only update on actual auth changes, not the initial INITIAL_SESSION event
-        if (mounted && event !== "INITIAL_SESSION") {
-          setUserEmail(session?.user?.email ?? null);
-        }
-      });
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (mounted) {
+        setUserEmail(user?.email ?? null);
+      }
+    });
 
-      return () => {
-        mounted = false;
-        subscription.unsubscribe();
-      };
-    } catch {
-      // Supabase not configured
-    }
     return () => {
       mounted = false;
+      unsubscribe();
     };
   }, []);
+
+  async function handleLogout() {
+    try {
+      // Sign out of Firebase client-side
+      await signOut(auth);
+      // Clear server session cookie
+      await fetch("/api/auth/session", { method: "DELETE" });
+      setUserEmail(null);
+      router.push("/");
+      router.refresh();
+    } catch {
+      // Best effort — redirect anyway
+      router.push("/");
+      router.refresh();
+    }
+  }
 
   return (
     <>
@@ -155,9 +158,7 @@ export function Header({ initialUserEmail = null }: HeaderProps) {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     variant="destructive"
-                    onSelect={() => {
-                      logout();
-                    }}
+                    onSelect={handleLogout}
                     className="cursor-pointer"
                   >
                     <LogOut className="mr-2 size-4" />

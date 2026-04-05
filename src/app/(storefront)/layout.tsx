@@ -3,7 +3,7 @@ import { Footer } from "@/components/layout/footer";
 import { CartDrawer } from "@/components/cart/cart-drawer";
 import { SearchCommand } from "@/components/shared/search-command";
 import { Toaster } from "@/components/ui/sonner";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
 
 export default async function StorefrontLayout({
   children,
@@ -12,13 +12,10 @@ export default async function StorefrontLayout({
 }>) {
   let userEmail: string | null = null;
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     userEmail = user?.email ?? null;
   } catch {
-    // Supabase not configured
+    // Firebase not configured
   }
 
   return (

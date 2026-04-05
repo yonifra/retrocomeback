@@ -12,16 +12,16 @@
  *     --image "https://example.com/image.jpg"
  *
  * Required env vars (in .env.local):
- *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY
- *   AMAZON_AFFILIATE_TAG        (e.g., "mystore-20")
- *   ALIEXPRESS_AFFILIATE_ID     (e.g., your AliExpress affiliate ID)
+ *   FIREBASE_PROJECT_ID            (or via GOOGLE_APPLICATION_CREDENTIALS)
+ *   FIREBASE_CLIENT_EMAIL
+ *   FIREBASE_PRIVATE_KEY
+ *   AMAZON_AFFILIATE_TAG           (e.g., "mystore-20")
+ *   ALIEXPRESS_AFFILIATE_ID        (e.g., your AliExpress affiliate ID)
  *
  * The script detects whether the URL is Amazon or AliExpress,
  * appends your affiliate tag automatically, and inserts the product.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { detectPlatform, buildAffiliateUrl, slugify } from "../src/lib/affiliate";
 
 // ── CLI arg parsing (no extra deps) ─────────────────────────────────
@@ -73,14 +73,27 @@ Usage: npx tsx scripts/add-product.ts \\
     process.exit(1);
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment");
+  // Dynamically import firebase-admin (avoid top-level import issues with env loading)
+  const { initializeApp, cert, getApps, getApp } = await import("firebase-admin/app");
+  const { getFirestore } = await import("firebase-admin/firestore");
+
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  if (!projectId) {
+    console.error("Missing FIREBASE_PROJECT_ID in environment");
     process.exit(1);
   }
 
-  const supabase = createClient(supabaseUrl, supabaseKey);
+  // Initialize Firebase Admin
+  const app = getApps().length
+    ? getApp()
+    : clientEmail && privateKey
+      ? initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) })
+      : initializeApp({ projectId });
+
+  const db = getFirestore(app);
 
   const sourceUrl = args.url;
   const platform = detectPlatform(sourceUrl);
@@ -90,77 +103,80 @@ Usage: npx tsx scripts/add-product.ts \\
 
   // Resolve category ID if slug provided
   let categoryId: string | null = null;
+  let categoryName: string | null = null;
+  let categorySlug: string | null = null;
   if (args.category) {
-    const { data: cat } = await supabase
-      .from("categories")
-      .select("id")
-      .eq("slug", args.category)
-      .single();
-    if (cat) {
-      categoryId = cat.id;
+    const catSnap = await db
+      .collection("categories")
+      .where("slug", "==", args.category)
+      .limit(1)
+      .get();
+    if (!catSnap.empty) {
+      const catDoc = catSnap.docs[0];
+      categoryId = catDoc.id;
+      const catData = catDoc.data();
+      categoryName = catData.name ?? null;
+      categorySlug = catData.slug ?? null;
     } else {
-      console.warn(`⚠  Category "${args.category}" not found – product will have no category`);
+      console.warn(`Warning: Category "${args.category}" not found -- product will have no category`);
     }
   }
 
+  const now = new Date().toISOString();
+
   // Insert product
-  const { data: product, error } = await supabase
-    .from("products")
-    .insert({
-      slug,
-      title: args.title,
-      description: args.description ?? null,
-      short_description: args.short ?? null,
-      category_id: categoryId,
-      brand: args.brand ?? null,
-      tags,
-      retail_price: parseFloat(args.price),
-      compare_at_price: args["compare-price"] ? parseFloat(args["compare-price"]) : null,
-      status: args.status ?? "active",
-      featured: "featured" in args,
-      affiliate_url: affiliateUrl,
-      source_url: sourceUrl,
-      source_platform: platform,
-    })
-    .select("id, slug")
-    .single();
+  const productRef = await db.collection("products").add({
+    slug,
+    title: args.title,
+    description: args.description ?? null,
+    short_description: args.short ?? null,
+    category_id: categoryId,
+    category_name: categoryName,
+    category_slug: categorySlug,
+    brand: args.brand ?? null,
+    tags,
+    retail_price: parseFloat(args.price),
+    compare_at_price: args["compare-price"] ? parseFloat(args["compare-price"]) : null,
+    status: args.status ?? "active",
+    featured: "featured" in args,
+    affiliate_url: affiliateUrl,
+    source_url: sourceUrl,
+    source_platform: platform,
+    created_at: now,
+    updated_at: now,
+  });
 
-  if (error) {
-    console.error("❌ Failed to insert product:", error.message);
-    process.exit(1);
-  }
-
-  console.log(`✅ Product created: ${product.slug} (${product.id})`);
+  console.log(`Product created: ${slug} (${productRef.id})`);
   console.log(`   Platform:      ${platform}`);
   console.log(`   Affiliate URL: ${affiliateUrl}`);
 
   // Insert primary image if provided
   if (args.image) {
-    const { error: imgError } = await supabase.from("product_images").insert({
-      product_id: product.id,
-      url: args.image,
-      alt_text: args.title,
-      position: 0,
-      is_primary: true,
-    });
-    if (imgError) {
-      console.warn("⚠  Failed to insert image:", imgError.message);
-    } else {
+    try {
+      await productRef.collection("images").add({
+        url: args.image,
+        alt_text: args.title,
+        position: 0,
+        is_primary: true,
+      });
       console.log(`   Image:         ${args.image}`);
+    } catch (err) {
+      console.warn("Warning: Failed to insert image:", err);
     }
   }
 
   // Create a default variant so stock tracking works
-  const { error: varError } = await supabase.from("product_variants").insert({
-    product_id: product.id,
-    title: "Default",
-    stock_quantity: 999, // affiliate products are always "in stock"
-  });
-  if (varError) {
-    console.warn("⚠  Failed to create default variant:", varError.message);
+  try {
+    await productRef.collection("variants").add({
+      title: "Default",
+      stock_quantity: 999,
+      sort_order: 0,
+    });
+  } catch (err) {
+    console.warn("Warning: Failed to create default variant:", err);
   }
 
-  console.log("\nDone! 🎉");
+  console.log("\nDone!");
 }
 
 main();

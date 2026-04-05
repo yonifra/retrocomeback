@@ -44,7 +44,8 @@ All mutations use Server Actions in colocated `actions.ts` files. Follow this ex
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
+import { someQueryFunction } from "@/lib/queries/...";
 import { someSchema } from "@/lib/validators/...";
 
 export type ActionResult = { error?: string };
@@ -57,15 +58,14 @@ export async function doSomethingAction(formData: FormData): Promise<ActionResul
   }
 
   // 2. Authenticate
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) {
     return { error: "You must be logged in" };
   }
 
-  // 3. Perform mutation
-  const { error } = await supabase.from("table").insert({ ... });
-  if (error) {
+  // 3. Perform mutation via query function
+  const result = await someQueryFunction({ user_id: user.uid, ...parsed.data });
+  if (!result) {
     return { error: "Something went wrong" };
   }
 
@@ -77,32 +77,60 @@ export async function doSomethingAction(formData: FormData): Promise<ActionResul
 
 ## Query Functions Pattern
 
-All read operations go through query functions in `src/lib/queries/`. Follow this pattern:
+All read/write operations go through query functions in `src/lib/queries/`. Follow this pattern:
 
 ```typescript
-import { createClient } from "@/lib/supabase/server";
+import { adminDb } from "@/lib/firebase/admin";
+import type { SomeType } from "@/types";
 
-/** Graceful fallback when Supabase is not configured. */
-async function getSupabase() {
-  try {
-    return await createClient();
-  } catch {
-    return null;
-  }
+function isConfigured(): boolean {
+  return !!(
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID
+  );
 }
 
 export async function getSomething(): Promise<SomeType[]> {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
+  if (!isConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from("table")
-    .select("...")
-    .eq("status", "active");
+  try {
+    const snap = await adminDb
+      .collection("something")
+      .where("status", "==", "active")
+      .orderBy("created_at", "desc")
+      .get();
 
-  if (error || !data) return [];
-  return data;
+    return snap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as SomeType[];
+  } catch (error) {
+    console.error("Error fetching something:", error);
+    return [];
+  }
 }
+```
+
+## Authentication Pattern
+
+Firebase Auth runs **client-side**. After sign-in, the client sends the ID token to create a server-side session cookie:
+
+```typescript
+// Client-side (login/signup forms):
+const credential = await signInWithEmailAndPassword(auth, email, password);
+const idToken = await credential.user.getIdToken();
+await fetch("/api/auth/session", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ idToken }),
+});
+
+// Server-side (Server Components / Server Actions):
+import { getSessionUser } from "@/lib/firebase/session";
+
+const user = await getSessionUser();
+if (!user) { /* redirect or return error */ }
+// user.uid, user.email, user.displayName
 ```
 
 ## Validation
@@ -116,7 +144,7 @@ export async function getSomething(): Promise<SomeType[]> {
 | File | Schemas |
 |------|---------|
 | `auth.ts` | loginSchema, registerSchema, forgotPasswordSchema, magicLinkSchema |
-| `product.ts` | productFilterSchema, searchSchema |
+| `product.ts` | productFilterSchema, searchSchema, addProductSchema |
 | `checkout.ts` | checkoutSchema |
 | `address.ts` | addressSchema |
 | `marketplace.ts` | marketplaceSchema, pluginSchema, skillSchema, agentSchema, commandSchema |
@@ -156,7 +184,8 @@ export async function getSomething(): Promise<SomeType[]> {
 |------|-------|-----|
 | Cart | Zustand (`src/lib/stores/cart-store.ts`) | Client-only, persisted to localStorage |
 | Product filters | nuqs (URL search params) | Shareable URLs, SSR-compatible |
-| Auth session | Supabase (cookies, middleware) | Server-side, automatic refresh |
+| Auth session | Firebase session cookie (server-side) | Verified via `getSessionUser()` |
+| Client auth state | Firebase `onAuthStateChanged` (Header) | Real-time UI updates on login/logout |
 | All other data | Server Components (direct fetch) | No client cache needed |
 
 **Rules:**
@@ -169,7 +198,7 @@ export async function getSomething(): Promise<SomeType[]> {
 - Server actions return `{ error?: string }`. Display errors in the UI via form state or toast.
 - Query functions return empty arrays/null on error. No throwing in queries.
 - API routes return appropriate HTTP status codes with JSON error bodies.
-- Supabase connection errors are caught gracefully (app still renders with empty data).
+- Firebase connection errors are caught gracefully (app still renders with empty data via `isConfigured()` checks).
 
 ## Imports
 

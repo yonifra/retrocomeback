@@ -2,7 +2,26 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
+import {
+  createMarketplace,
+  updateMarketplace,
+  deleteMarketplace,
+  togglePublishMarketplace,
+  getMarketplaceByName,
+  createPlugin,
+  updatePlugin,
+  deletePlugin,
+  createSkill,
+  updateSkill,
+  deleteSkill,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  createCommand,
+  updateCommand,
+  deleteCommand,
+} from "@/lib/queries/marketplaces";
 import {
   marketplaceSchema,
   pluginSchema,
@@ -33,37 +52,32 @@ export async function createMarketplaceAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getSessionUser();
   if (!user) {
     return { error: "You must be logged in" };
   }
 
-  const { data, error } = await supabase
-    .from("marketplaces")
-    .insert({
-      user_id: user.id,
-      name: parsed.data.name,
-      display_name: parsed.data.display_name,
-      description: parsed.data.description,
-      version: parsed.data.version,
-      owner_email: parsed.data.owner_email || null,
-    })
-    .select()
-    .single();
+  // Check for duplicate name
+  const existing = await getMarketplaceByName(user.uid, parsed.data.name);
+  if (existing) {
+    return { error: "A marketplace with this name already exists" };
+  }
 
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "A marketplace with this name already exists" };
-    }
-    return { error: error.message };
+  const marketplace = await createMarketplace({
+    user_id: user.uid,
+    name: parsed.data.name,
+    display_name: parsed.data.display_name,
+    description: parsed.data.description,
+    version: parsed.data.version,
+    owner_email: parsed.data.owner_email || undefined,
+  });
+
+  if (!marketplace) {
+    return { error: "Failed to create marketplace" };
   }
 
   revalidatePath("/account/marketplaces");
-  redirect(`/account/marketplaces/${data.id}`);
+  redirect(`/account/marketplaces/${marketplace.id}`);
 }
 
 export async function updateMarketplaceAction(
@@ -83,23 +97,16 @@ export async function updateMarketplaceAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("marketplaces")
-    .update({
-      name: parsed.data.name,
-      display_name: parsed.data.display_name,
-      description: parsed.data.description,
-      version: parsed.data.version,
-      owner_email: parsed.data.owner_email || null,
-    })
-    .eq("id", id);
+  const result = await updateMarketplace(id, {
+    name: parsed.data.name,
+    display_name: parsed.data.display_name,
+    description: parsed.data.description,
+    version: parsed.data.version,
+    owner_email: parsed.data.owner_email || null,
+  });
 
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "A marketplace with this name already exists" };
-    }
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to update marketplace" };
   }
 
   revalidatePath(`/account/marketplaces/${id}`);
@@ -111,11 +118,9 @@ export async function deleteMarketplaceAction(
 ): Promise<ActionResult> {
   const id = formData.get("id") as string;
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("marketplaces").delete().eq("id", id);
-
-  if (error) {
-    return { error: error.message };
+  const success = await deleteMarketplace(id);
+  if (!success) {
+    return { error: "Failed to delete marketplace" };
   }
 
   revalidatePath("/account/marketplaces");
@@ -128,14 +133,9 @@ export async function togglePublishAction(
   const id = formData.get("id") as string;
   const publish = formData.get("publish") === "true";
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("marketplaces")
-    .update({ is_published: publish })
-    .eq("id", id);
-
-  if (error) {
-    return { error: error.message };
+  const success = await togglePublishMarketplace(id, publish);
+  if (!success) {
+    return { error: "Failed to update publish status" };
   }
 
   revalidatePath(`/account/marketplaces/${id}`);
@@ -178,34 +178,26 @@ export async function createPluginAction(
         .filter(Boolean)
     : [];
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("marketplace_plugins")
-    .insert({
-      marketplace_id: marketplaceId,
-      name: parsed.data.name,
-      description: parsed.data.description,
-      version: parsed.data.version,
-      author_name: parsed.data.author_name,
-      author_email: parsed.data.author_email || null,
-      homepage: parsed.data.homepage || null,
-      category: parsed.data.category || null,
-      tags,
-      keywords,
-    })
-    .select()
-    .single();
+  const plugin = await createPlugin({
+    marketplace_id: marketplaceId,
+    name: parsed.data.name,
+    description: parsed.data.description,
+    version: parsed.data.version,
+    author_name: parsed.data.author_name,
+    author_email: parsed.data.author_email || undefined,
+    homepage: parsed.data.homepage || undefined,
+    category: parsed.data.category || undefined,
+    tags,
+    keywords,
+  });
 
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "A plugin with this name already exists in this marketplace" };
-    }
-    return { error: error.message };
+  if (!plugin) {
+    return { error: "Failed to create plugin" };
   }
 
   revalidatePath(`/account/marketplaces/${marketplaceId}`);
   redirect(
-    `/account/marketplaces/${marketplaceId}/plugins/${data.id}`
+    `/account/marketplaces/${marketplaceId}/plugins/${plugin.id}`
   );
 }
 
@@ -244,10 +236,9 @@ export async function updatePluginAction(
         .filter(Boolean)
     : [];
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("marketplace_plugins")
-    .update({
+  const result = await updatePlugin(
+    id,
+    {
       name: parsed.data.name,
       description: parsed.data.description,
       version: parsed.data.version,
@@ -257,14 +248,12 @@ export async function updatePluginAction(
       category: parsed.data.category || null,
       tags,
       keywords,
-    })
-    .eq("id", id);
+    },
+    marketplaceId,
+  );
 
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "A plugin with this name already exists in this marketplace" };
-    }
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to update plugin" };
   }
 
   revalidatePath(`/account/marketplaces/${marketplaceId}`);
@@ -277,14 +266,9 @@ export async function deletePluginAction(
   const id = formData.get("id") as string;
   const marketplaceId = formData.get("marketplace_id") as string;
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("marketplace_plugins")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    return { error: error.message };
+  const success = await deletePlugin(id, marketplaceId);
+  if (!success) {
+    return { error: "Failed to delete plugin" };
   }
 
   revalidatePath(`/account/marketplaces/${marketplaceId}`);
@@ -310,20 +294,17 @@ export async function createSkillAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("plugin_skills").insert({
+  const result = await createSkill({
     plugin_id: pluginId,
     name: parsed.data.name,
     description: parsed.data.description,
     disable_model_invocation: parsed.data.disable_model_invocation,
     content: parsed.data.content,
+    marketplace_id: marketplaceId,
   });
 
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "A skill with this name already exists in this plugin" };
-    }
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to create skill" };
   }
 
   revalidatePath(
@@ -350,19 +331,20 @@ export async function updateSkillAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("plugin_skills")
-    .update({
+  const result = await updateSkill(
+    id,
+    {
       name: parsed.data.name,
       description: parsed.data.description,
       disable_model_invocation: parsed.data.disable_model_invocation,
       content: parsed.data.content,
-    })
-    .eq("id", id);
+    },
+    pluginId,
+    marketplaceId,
+  );
 
-  if (error) {
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to update skill" };
   }
 
   revalidatePath(
@@ -378,14 +360,9 @@ export async function deleteSkillAction(
   const pluginId = formData.get("plugin_id") as string;
   const marketplaceId = formData.get("marketplace_id") as string;
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("plugin_skills")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    return { error: error.message };
+  const success = await deleteSkill(id, pluginId, marketplaceId);
+  if (!success) {
+    return { error: "Failed to delete skill" };
   }
 
   revalidatePath(
@@ -412,19 +389,16 @@ export async function createAgentAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("plugin_agents").insert({
+  const result = await createAgent({
     plugin_id: pluginId,
     name: parsed.data.name,
     description: parsed.data.description,
     content: parsed.data.content,
+    marketplace_id: marketplaceId,
   });
 
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "An agent with this name already exists in this plugin" };
-    }
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to create agent" };
   }
 
   revalidatePath(
@@ -450,18 +424,19 @@ export async function updateAgentAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("plugin_agents")
-    .update({
+  const result = await updateAgent(
+    id,
+    {
       name: parsed.data.name,
       description: parsed.data.description,
       content: parsed.data.content,
-    })
-    .eq("id", id);
+    },
+    pluginId,
+    marketplaceId,
+  );
 
-  if (error) {
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to update agent" };
   }
 
   revalidatePath(
@@ -477,14 +452,9 @@ export async function deleteAgentAction(
   const pluginId = formData.get("plugin_id") as string;
   const marketplaceId = formData.get("marketplace_id") as string;
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("plugin_agents")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    return { error: error.message };
+  const success = await deleteAgent(id, pluginId, marketplaceId);
+  if (!success) {
+    return { error: "Failed to delete agent" };
   }
 
   revalidatePath(
@@ -510,20 +480,15 @@ export async function createCommandAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("plugin_commands").insert({
+  const result = await createCommand({
     plugin_id: pluginId,
     name: parsed.data.name,
     content: parsed.data.content,
+    marketplace_id: marketplaceId,
   });
 
-  if (error) {
-    if (error.code === "23505") {
-      return {
-        error: "A command with this name already exists in this plugin",
-      };
-    }
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to create command" };
   }
 
   revalidatePath(
@@ -548,17 +513,18 @@ export async function updateCommandAction(
     return { error: parsed.error.issues[0].message };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("plugin_commands")
-    .update({
+  const result = await updateCommand(
+    id,
+    {
       name: parsed.data.name,
       content: parsed.data.content,
-    })
-    .eq("id", id);
+    },
+    pluginId,
+    marketplaceId,
+  );
 
-  if (error) {
-    return { error: error.message };
+  if (!result) {
+    return { error: "Failed to update command" };
   }
 
   revalidatePath(
@@ -574,14 +540,9 @@ export async function deleteCommandAction(
   const pluginId = formData.get("plugin_id") as string;
   const marketplaceId = formData.get("marketplace_id") as string;
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("plugin_commands")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    return { error: error.message };
+  const success = await deleteCommand(id, pluginId, marketplaceId);
+  if (!success) {
+    return { error: "Failed to delete command" };
   }
 
   revalidatePath(

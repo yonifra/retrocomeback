@@ -1,13 +1,20 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { signup, loginWithGoogle, type AuthResult } from "../actions";
+import {
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from "firebase/auth";
+import { auth } from "@/lib/firebase/client";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -20,13 +27,112 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
+async function createServerSession(idToken: string): Promise<boolean> {
+  const res = await fetch("/api/auth/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  return res.ok;
+}
+
 export function SignupForm() {
-  const [state, formAction, isPending] = useActionState<AuthResult, FormData>(
-    async (_prevState: AuthResult, formData: FormData) => {
-      return signup(formData);
-    },
-    {}
-  );
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const [isGooglePending, setIsGooglePending] = useState(false);
+
+  async function handleSignup(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setIsPending(true);
+
+    try {
+      const formData = new FormData(e.currentTarget);
+      const displayName = formData.get("displayName") as string;
+      const email = formData.get("email") as string;
+      const password = formData.get("password") as string;
+      const acceptTerms = formData.get("acceptTerms");
+
+      if (!displayName || !email || !password) {
+        setError("All fields are required");
+        setIsPending(false);
+        return;
+      }
+
+      if (!acceptTerms) {
+        setError("You must accept the Terms of Service");
+        setIsPending(false);
+        return;
+      }
+
+      // Validate password client-side
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters");
+        setIsPending(false);
+        return;
+      }
+
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+
+      // Set display name
+      await updateProfile(credential.user, { displayName });
+
+      // Create server session
+      const idToken = await credential.user.getIdToken();
+      const ok = await createServerSession(idToken);
+
+      if (!ok) {
+        setError("Account created but failed to create session. Please sign in.");
+        setIsPending(false);
+        return;
+      }
+
+      router.push("/");
+      router.refresh();
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      if (firebaseError.code === "auth/email-already-in-use") {
+        setError("An account with this email already exists");
+      } else if (firebaseError.code === "auth/weak-password") {
+        setError("Password is too weak. Use at least 6 characters.");
+      } else if (firebaseError.code === "auth/invalid-email") {
+        setError("Invalid email address");
+      } else {
+        setError(firebaseError.message ?? "Sign up failed");
+      }
+      setIsPending(false);
+    }
+  }
+
+  async function handleGoogleSignup() {
+    setError(null);
+    setIsGooglePending(true);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      const credential = await signInWithPopup(auth, provider);
+      const idToken = await credential.user.getIdToken();
+      const ok = await createServerSession(idToken);
+
+      if (!ok) {
+        setError("Failed to create session");
+        setIsGooglePending(false);
+        return;
+      }
+
+      router.push("/");
+      router.refresh();
+    } catch (err: unknown) {
+      const firebaseError = err as { code?: string; message?: string };
+      if (firebaseError.code === "auth/popup-closed-by-user") {
+        // User closed the popup — not an error
+      } else {
+        setError(firebaseError.message ?? "Google sign up failed");
+      }
+      setIsGooglePending(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -39,23 +145,27 @@ export function SignupForm() {
           </p>
         </div>
 
-        {state?.error && (
+        {error && (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {state.error}
+            {error}
           </div>
         )}
 
         {/* Google OAuth */}
-        <form action={loginWithGoogle}>
-          <Button
-            type="submit"
-            variant="outline"
-            className="w-full gap-2 border-border bg-secondary hover:bg-muted hover:neon-glow-cyan"
-          >
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full gap-2 border-border bg-secondary hover:bg-muted hover:neon-glow-cyan"
+          onClick={handleGoogleSignup}
+          disabled={isGooglePending || isPending}
+        >
+          {isGooglePending ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : (
             <GoogleIcon className="size-5" />
-            <span className="text-sm">Continue with Google</span>
-          </Button>
-        </form>
+          )}
+          <span className="text-sm">Continue with Google</span>
+        </Button>
 
         {/* Divider */}
         <div className="relative my-6">
@@ -70,7 +180,7 @@ export function SignupForm() {
         </div>
 
         {/* Signup Form */}
-        <form action={formAction} className="space-y-4">
+        <form onSubmit={handleSignup} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="displayName" className="text-sm text-foreground">
               Display Name
@@ -138,7 +248,7 @@ export function SignupForm() {
 
           <Button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || isGooglePending}
             className="w-full neon-glow"
           >
             {isPending ? (

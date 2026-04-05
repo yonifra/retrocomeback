@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod/v4";
+import { adminDb } from "@/lib/firebase/admin";
 import { detectPlatform, buildAffiliateUrl, slugify } from "@/lib/affiliate";
 
 // ── Input validation ────────────────────────────────────────────────
@@ -48,41 +48,41 @@ export async function POST(request: NextRequest) {
   }
 
   const input = parsed.data;
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    return NextResponse.json(
-      { error: "Server misconfigured – missing Supabase credentials" },
-      { status: 500 }
-    );
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
   const platform = detectPlatform(input.url);
   const affiliateUrl = buildAffiliateUrl(input.url, platform);
   const slug = input.slug ?? slugify(input.title);
 
   // Resolve category
   let categoryId: string | null = null;
+  let categoryName: string | null = null;
+  let categorySlug: string | null = null;
   if (input.category) {
-    const { data: cat } = await supabase
-      .from("categories")
-      .select("id")
-      .eq("slug", input.category)
-      .single();
-    if (cat) categoryId = cat.id;
+    const catSnap = await adminDb
+      .collection("categories")
+      .where("slug", "==", input.category)
+      .limit(1)
+      .get();
+    if (!catSnap.empty) {
+      const catDoc = catSnap.docs[0];
+      categoryId = catDoc.id;
+      const catData = catDoc.data();
+      categoryName = catData.name ?? null;
+      categorySlug = catData.slug ?? null;
+    }
   }
 
+  const now = new Date().toISOString();
+
   // Insert product
-  const { data: product, error } = await supabase
-    .from("products")
-    .insert({
+  try {
+    const productRef = await adminDb.collection("products").add({
       slug,
       title: input.title,
       description: input.description ?? null,
       short_description: input.short_description ?? null,
       category_id: categoryId,
+      category_name: categoryName,
+      category_slug: categorySlug,
       brand: input.brand ?? null,
       tags: input.tags ?? [],
       retail_price: input.price,
@@ -92,39 +92,38 @@ export async function POST(request: NextRequest) {
       affiliate_url: affiliateUrl,
       source_url: input.url,
       source_platform: platform,
-    })
-    .select("id, slug")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // Insert primary image
-  if (input.image_url) {
-    await supabase.from("product_images").insert({
-      product_id: product.id,
-      url: input.image_url,
-      alt_text: input.title,
-      position: 0,
-      is_primary: true,
+      created_at: now,
+      updated_at: now,
     });
+
+    // Insert primary image
+    if (input.image_url) {
+      await productRef.collection("images").add({
+        url: input.image_url,
+        alt_text: input.title,
+        position: 0,
+        is_primary: true,
+      });
+    }
+
+    // Default variant
+    await productRef.collection("variants").add({
+      title: "Default",
+      stock_quantity: 999,
+      sort_order: 0,
+    });
+
+    return NextResponse.json({
+      success: true,
+      product: {
+        id: productRef.id,
+        slug,
+        platform,
+        affiliate_url: affiliateUrl,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  // Default variant
-  await supabase.from("product_variants").insert({
-    product_id: product.id,
-    title: "Default",
-    stock_quantity: 999,
-  });
-
-  return NextResponse.json({
-    success: true,
-    product: {
-      id: product.id,
-      slug: product.slug,
-      platform,
-      affiliate_url: affiliateUrl,
-    },
-  });
 }

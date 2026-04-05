@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
+import { adminDb } from "@/lib/firebase/admin";
 import { addProductSchema } from "@/lib/validators/product";
 import {
   detectPlatform,
@@ -40,18 +41,10 @@ export async function addProductAction(
   }
 
   // Authenticate -- must be logged in
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getSessionUser();
   if (!user) {
     return { error: "You must be logged in" };
   }
-
-  // TODO: In production, check for admin role:
-  // const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  // if (profile?.role !== "admin") return { error: "Unauthorized" };
 
   const input = parsed.data;
   const sourceUrl = input.url;
@@ -64,13 +57,21 @@ export async function addProductAction(
 
   // Resolve category by slug
   let categoryId: string | null = null;
+  let categoryName: string | null = null;
+  let categorySlug: string | null = null;
   if (input.category) {
-    const { data: cat } = await supabase
-      .from("categories")
-      .select("id")
-      .eq("slug", input.category)
-      .single();
-    if (cat) categoryId = cat.id;
+    const catSnap = await adminDb
+      .collection("categories")
+      .where("slug", "==", input.category)
+      .limit(1)
+      .get();
+    if (!catSnap.empty) {
+      const catDoc = catSnap.docs[0];
+      categoryId = catDoc.id;
+      const catData = catDoc.data();
+      categoryName = catData.name ?? null;
+      categorySlug = catData.slug ?? null;
+    }
   }
 
   // Ensure compare_at_price is a number or null
@@ -81,40 +82,44 @@ export async function addProductAction(
         ? parseFloat(String(input.compare_at_price))
         : null;
 
-  // Insert product
-  const { data: product, error } = await supabase
-    .from("products")
-    .insert({
-      slug,
-      title: input.title,
-      description: input.description ?? null,
-      short_description: input.short_description ?? null,
-      category_id: categoryId,
-      brand: input.brand ?? null,
-      tags,
-      retail_price: input.price,
-      compare_at_price:
-        compareAtPrice && !isNaN(compareAtPrice) ? compareAtPrice : null,
-      status: input.status,
-      featured: input.featured ?? false,
-      affiliate_url: affiliateUrl,
-      source_url: sourceUrl,
-      source_platform: platform,
-    })
-    .select("id, slug")
-    .single();
-
-  if (error) {
-    if (error.code === "23505") {
-      return { error: "A product with this slug already exists. Try a different title or set a custom slug." };
-    }
-    return { error: error.message };
+  // Check for slug uniqueness
+  const existingSnap = await adminDb
+    .collection("products")
+    .where("slug", "==", slug)
+    .limit(1)
+    .get();
+  if (!existingSnap.empty) {
+    return { error: "A product with this slug already exists. Try a different title or set a custom slug." };
   }
 
-  // Insert primary image
+  const now = new Date().toISOString();
+
+  // Insert product
+  const productRef = await adminDb.collection("products").add({
+    slug,
+    title: input.title,
+    description: input.description ?? null,
+    short_description: input.short_description ?? null,
+    category_id: categoryId,
+    category_name: categoryName,
+    category_slug: categorySlug,
+    brand: input.brand ?? null,
+    tags,
+    retail_price: input.price,
+    compare_at_price:
+      compareAtPrice && !isNaN(compareAtPrice) ? compareAtPrice : null,
+    status: input.status,
+    featured: input.featured ?? false,
+    affiliate_url: affiliateUrl,
+    source_url: sourceUrl,
+    source_platform: platform,
+    created_at: now,
+    updated_at: now,
+  });
+
+  // Insert primary image as subcollection doc
   if (input.image_url && input.image_url.startsWith("http")) {
-    await supabase.from("product_images").insert({
-      product_id: product.id,
+    await productRef.collection("images").add({
       url: input.image_url,
       alt_text: input.title,
       position: 0,
@@ -123,13 +128,13 @@ export async function addProductAction(
   }
 
   // Default variant (affiliate products are always "in stock")
-  await supabase.from("product_variants").insert({
-    product_id: product.id,
+  await productRef.collection("variants").add({
     title: "Default",
     stock_quantity: 999,
+    sort_order: 0,
   });
 
   revalidatePath("/products");
   revalidatePath("/");
-  redirect(`/products/${product.slug}`);
+  redirect(`/products/${slug}`);
 }

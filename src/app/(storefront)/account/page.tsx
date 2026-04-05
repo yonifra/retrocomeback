@@ -1,18 +1,15 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
 import { getUserMarketplaces } from "@/lib/queries/marketplaces";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Package, Puzzle, ArrowRight, Plus } from "lucide-react";
 
 export default async function AccountPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) return null;
 
-  const marketplaces = await getUserMarketplaces(user.id);
+  const marketplaces = await getUserMarketplaces(user.uid);
   const totalPlugins = marketplaces.reduce(
     (sum, m) => sum + m.plugin_count,
     0

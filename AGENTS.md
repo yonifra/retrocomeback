@@ -17,7 +17,8 @@ RETROCOMEBACK is an 80s retro/synthwave-themed web application with two product 
 | Language | TypeScript (strict) |
 | Styling | Tailwind CSS v4, dark-only theme |
 | UI | shadcn/ui (new-york style), lucide-react icons |
-| Database & Auth | Supabase (PostgreSQL 17, RLS, email + Google OAuth) |
+| Auth | Firebase Auth (email/password + Google OAuth) |
+| Database | Firebase Firestore (NoSQL document database) |
 | Payments | Stripe (checkout, webhooks) |
 | State | Zustand (cart, localStorage persist), nuqs (URL params) |
 | Validation | Zod schemas for all inputs |
@@ -40,14 +41,17 @@ src/
       cart/page.tsx               # Full cart page
       account/page.tsx            # User dashboard (protected)
       account/marketplaces/       # Marketplace CRUD (actions.ts has 18 server actions)
+      account/add-product/        # Add affiliate product (form + server action)
     (auth)/                       # Auth route group
       layout.tsx                  # Centered layout with retro grid + scanlines
-      actions.ts                  # login, signup, loginWithGoogle, logout
-      login/, signup/             # Auth pages
+      actions.ts                  # logout server action
+      login/, signup/             # Auth pages (client-side Firebase Auth)
     api/
       admin/products/route.ts     # POST: add products (Bearer token auth)
-      auth/callback/route.ts      # OAuth callback
-      search/route.ts             # Full-text product search
+      admin/scrape/route.ts       # POST: scrape product data from URL
+      auth/session/route.ts       # POST/DELETE: Firebase session cookie management
+      auth/callback/route.ts      # Legacy OAuth callback (redirects to /)
+      search/route.ts             # Product search
       webhooks/stripe/route.ts    # Stripe webhook handler
   components/
     ui/                           # 22 shadcn/ui primitives (DO NOT hand-edit)
@@ -57,36 +61,39 @@ src/
     shared/                       # HeroBanner, CategoryGrid, Breadcrumbs, SearchCommand
     marketplace/                  # MarketplaceCard/Form, PluginCard/Form, editors, ExportPanel
   lib/
-    supabase/client.ts            # Browser Supabase client
-    supabase/server.ts            # Server Supabase client (cookies)
-    supabase/middleware.ts         # Session refresh + /account protection
+    firebase/client.ts            # Firebase client SDK (Auth + Firestore), lazily initialized
+    firebase/admin.ts             # Firebase Admin SDK (server-side)
+    firebase/session.ts           # Session cookie helpers (getSessionUser, createSessionCookie, clearSessionCookie)
     stripe/client.ts              # loadStripe singleton
     stripe/server.ts              # Server Stripe instance
     stores/cart-store.ts          # Zustand cart store (persist to localStorage)
-    queries/products.ts           # 7 product query functions
-    queries/marketplaces.ts       # 18 marketplace CRUD query functions
+    queries/products.ts           # Product query functions (Firestore)
+    queries/marketplaces.ts       # Marketplace CRUD query functions (Firestore)
     validators/                   # Zod schemas: auth, product, checkout, address, marketplace
     export/marketplace-export.ts  # ZIP generation (JSZip)
+    affiliate.ts                  # Shared affiliate utilities (detectPlatform, buildAffiliateUrl, slugify)
     utils.ts                      # cn() (clsx+twMerge), formatPrice()
   types/index.ts                  # All TypeScript interfaces (20+)
-  middleware.ts                   # Next.js middleware entry point
-supabase/
-  config.toml                     # Local dev config
-  migrations/                     # 5 SQL migration files
-  seed.sql                        # Seed data
+  middleware.ts                   # Route protection (/account/* requires session cookie)
 scripts/
-  add-product.ts                  # CLI tool to add affiliate products
+  add-product.ts                  # CLI tool to add affiliate products (Firebase Admin)
 ```
 
 ## Key Patterns (READ BEFORE MAKING CHANGES)
 
 ### Server Components by Default
-Pages are async Server Components that fetch data directly from Supabase. Only add `"use client"` when interactive behavior is needed (forms, state, event handlers).
+Pages are async Server Components that fetch data directly from Firestore via the Admin SDK. Only add `"use client"` when interactive behavior is needed (forms, state, event handlers).
 
 ### Data Access
-- **Queries**: `src/lib/queries/` -- read functions that call Supabase. They use a `getSupabase()` helper that returns `null` when env vars are missing (graceful fallback).
-- **Mutations**: Server Actions in colocated `actions.ts` files. Pattern: validate with Zod -> get user -> call Supabase -> `revalidatePath` -> `redirect`.
+- **Queries**: `src/lib/queries/` -- read/write functions that use Firebase Admin SDK (`adminDb` from `@/lib/firebase/admin`). They check `isConfigured()` and return empty/null when env vars are missing (graceful fallback).
+- **Mutations**: Server Actions in colocated `actions.ts` files. Pattern: validate with Zod -> get user via `getSessionUser()` -> call Firestore query function -> `revalidatePath` -> `redirect`.
 - **Return type for actions**: `{ error?: string }` (see `ActionResult` type).
+
+### Firestore Data Model
+- **Products**: `products/{productId}` with subcollections `images/`, `variants/`, and `variants/{variantId}/options/`
+- **Categories**: `categories/{categoryId}`
+- **Marketplaces**: `marketplaces/{marketplaceId}` with subcollections `plugins/{pluginId}/skills/`, `plugins/{pluginId}/agents/`, `plugins/{pluginId}/commands/`
+- Products store denormalized `category_name` and `category_slug` for efficient querying.
 
 ### Cart State
 Zustand store at `src/lib/stores/cart-store.ts`. Persisted to `localStorage` under key `"retrocomeback-cart"`. Cart items are identified by `(productId, variantId)` pair.
@@ -105,10 +112,11 @@ All user input validated with Zod schemas in `src/lib/validators/`. Schemas are 
 - Use `cn()` from `@/lib/utils` to merge Tailwind classes.
 
 ### Authentication
-- Supabase Auth with email/password and Google OAuth.
-- Middleware at `src/middleware.ts` refreshes sessions on every request and redirects unauthenticated users from `/account/*` to `/login`.
-- Server-side: `createClient()` from `@/lib/supabase/server` (uses cookies).
-- Client-side: `createBrowserClient()` from `@/lib/supabase/client`.
+- **Firebase Auth** with email/password and Google OAuth.
+- **Client-side**: Login/signup forms use Firebase client SDK (`signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup` with `GoogleAuthProvider`). After sign-in, the client sends the Firebase ID token to `/api/auth/session` to create a server-side session cookie.
+- **Server-side**: `getSessionUser()` from `@/lib/firebase/session` verifies the session cookie via `adminAuth.verifySessionCookie()`. Returns `{ uid, email, displayName }` or `null`.
+- **Middleware**: `src/middleware.ts` checks for the existence of the `session` cookie on `/account/*` routes. If missing, redirects to `/login`. (Full verification happens in the Server Component/Action via `getSessionUser()`.)
+- **Logout**: Client calls `signOut(auth)` + `DELETE /api/auth/session`, then the `logout()` server action clears the cookie and redirects.
 
 ### Affiliate Commerce Model
 Products have `affiliate_url`, `source_url`, and `source_platform` fields. Affiliate tags (Amazon `?tag=`, AliExpress `?aff_id=`) are appended from env vars.
@@ -116,7 +124,8 @@ Products have `affiliate_url`, `source_url`, and `source_platform` fields. Affil
 ## Environment Variables
 
 See `.env.example` for the full list. Required:
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` -- Supabase connection
+- `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` -- Firebase client SDK
+- `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` -- Firebase Admin SDK (or use `GOOGLE_APPLICATION_CREDENTIALS`)
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` -- Stripe payments
 - `NEXT_PUBLIC_APP_URL` -- App base URL
 
@@ -150,10 +159,10 @@ No test infrastructure exists yet. No test runner, no test files, no test depend
 Run `npx shadcn add <component-name>`. Do not hand-write shadcn/ui components.
 
 ### Modifying the database
-1. Create a new migration: `npx supabase migration new <name>`.
-2. Write SQL in the generated file under `supabase/migrations/`.
-3. Apply locally: `npx supabase db push`.
-4. Update TypeScript types in `src/types/index.ts` to match.
+Firestore is schemaless. To add a new collection or field:
+1. Update the query functions in `src/lib/queries/`.
+2. Update TypeScript types in `src/types/index.ts` to match.
+3. No migrations needed -- Firestore collections are created on first write.
 
 ### Adding a new API route
 Create `src/app/api/<path>/route.ts` exporting HTTP method handlers (GET, POST, etc.).
@@ -161,12 +170,11 @@ Create `src/app/api/<path>/route.ts` exporting HTTP method handlers (GET, POST, 
 ## Files to Avoid Editing Directly
 
 - `src/components/ui/*` -- Generated by shadcn/ui CLI.
-- `src/types/database.types.ts` -- Supabase-generated (currently a placeholder).
 - `node_modules/`, `.next/`, `package-lock.json`.
 
 ## Related Documentation
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- System architecture and data flow.
 - [CONVENTIONS.md](./CONVENTIONS.md) -- Coding patterns and style rules.
-- [DATABASE.md](./DATABASE.md) -- Schema, migrations, and RLS policies.
+- [DATABASE.md](./DATABASE.md) -- Schema and data model.
 - [docs/plans/2026-02-15-retrocomeback-design.md](./docs/plans/2026-02-15-retrocomeback-design.md) -- Original MVP design document.

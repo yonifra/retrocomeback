@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
 import { getPluginById, getMarketplaceById } from "@/lib/queries/marketplaces";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { PluginEditorTabs } from "./plugin-editor-tabs";
@@ -11,15 +11,12 @@ export default async function PluginEditorPage({
 }) {
   const { id, pluginId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) return null;
 
   const marketplace = await getMarketplaceById(id);
-  if (!marketplace || marketplace.user_id !== user.id) {
+  if (!marketplace || marketplace.user_id !== user.uid) {
     notFound();
   }
 

@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { adminDb } from "@/lib/firebase/admin";
+import { FieldValue } from "firebase-admin/firestore";
 import type {
   Marketplace,
   MarketplaceWithPlugins,
@@ -9,148 +10,119 @@ import type {
   PluginCommand,
 } from "@/types";
 
-/** Try to create a Supabase client; returns null if env vars are missing. */
-async function getSupabase() {
-  try {
-    return await createClient();
-  } catch {
-    return null;
-  }
+function isConfigured(): boolean {
+  return !!(
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID
+  );
+}
+
+function now(): string {
+  return new Date().toISOString();
 }
 
 // ─── Marketplace CRUD ───
 
 /** Fetch all marketplaces for a user with plugin count */
 export async function getUserMarketplaces(
-  userId: string
+  userId: string,
 ): Promise<(Marketplace & { plugin_count: number })[]> {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
+  if (!isConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from("marketplaces")
-    .select(
-      `
-      *,
-      marketplace_plugins(id)
-    `
-    )
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false });
+  try {
+    const snap = await adminDb
+      .collection("marketplaces")
+      .where("user_id", "==", userId)
+      .orderBy("updated_at", "desc")
+      .get();
 
-  if (error || !data) return [];
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.map((row: any) => ({
-    id: row.id,
-    user_id: row.user_id,
-    name: row.name,
-    display_name: row.display_name,
-    description: row.description,
-    version: row.version,
-    owner_email: row.owner_email,
-    is_published: row.is_published,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    plugin_count: row.marketplace_plugins?.length ?? 0,
-  }));
+    const results: (Marketplace & { plugin_count: number })[] = [];
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      const pluginsSnap = await doc.ref.collection("plugins").count().get();
+      results.push({
+        id: doc.id,
+        ...data,
+        plugin_count: pluginsSnap.data().count,
+      } as Marketplace & { plugin_count: number });
+    }
+    return results;
+  } catch (error) {
+    console.error("Error fetching user marketplaces:", error);
+    return [];
+  }
 }
 
-/** Fetch a single marketplace with all plugins (deep join: skills, agents, commands) */
+/** Fetch a single marketplace with all plugins (deep: skills, agents, commands) */
 export async function getMarketplaceById(
-  id: string
+  id: string,
 ): Promise<MarketplaceWithPlugins | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data, error } = await supabase
-    .from("marketplaces")
-    .select(
-      `
-      *,
-      marketplace_plugins(
-        *,
-        plugin_skills(*),
-        plugin_agents(*),
-        plugin_commands(*)
-      )
-    `
-    )
-    .eq("id", id)
-    .single();
+  try {
+    const doc = await adminDb.collection("marketplaces").doc(id).get();
+    if (!doc.exists) return null;
 
-  if (error || !data) return null;
+    const data = doc.data()!;
+    const pluginsSnap = await doc.ref
+      .collection("plugins")
+      .orderBy("sort_order")
+      .get();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const row = data as any;
+    const plugins: PluginWithDetails[] = [];
+    for (const pDoc of pluginsSnap.docs) {
+      const pData = pDoc.data();
 
-  return {
-    id: row.id,
-    user_id: row.user_id,
-    name: row.name,
-    display_name: row.display_name,
-    description: row.description,
-    version: row.version,
-    owner_email: row.owner_email,
-    is_published: row.is_published,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    plugins: (row.marketplace_plugins ?? [])
-      .sort(
-        (a: { sort_order: number }, b: { sort_order: number }) =>
-          a.sort_order - b.sort_order
-      )
-      .map(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (p: any): PluginWithDetails => ({
-          id: p.id,
-          marketplace_id: p.marketplace_id,
-          name: p.name,
-          description: p.description,
-          version: p.version,
-          author_name: p.author_name,
-          author_email: p.author_email,
-          homepage: p.homepage,
-          category: p.category,
-          tags: p.tags ?? [],
-          keywords: p.keywords ?? [],
-          sort_order: p.sort_order,
-          created_at: p.created_at,
-          updated_at: p.updated_at,
-          skills: (p.plugin_skills ?? []).sort(
-            (a: { sort_order: number }, b: { sort_order: number }) =>
-              a.sort_order - b.sort_order
-          ),
-          agents: (p.plugin_agents ?? []).sort(
-            (a: { sort_order: number }, b: { sort_order: number }) =>
-              a.sort_order - b.sort_order
-          ),
-          commands: (p.plugin_commands ?? []).sort(
-            (a: { sort_order: number }, b: { sort_order: number }) =>
-              a.sort_order - b.sort_order
-          ),
-        })
-      ),
-  };
+      const [skillsSnap, agentsSnap, commandsSnap] = await Promise.all([
+        pDoc.ref.collection("skills").orderBy("sort_order").get(),
+        pDoc.ref.collection("agents").orderBy("sort_order").get(),
+        pDoc.ref.collection("commands").orderBy("sort_order").get(),
+      ]);
+
+      plugins.push({
+        id: pDoc.id,
+        marketplace_id: id,
+        ...pData,
+        tags: pData.tags ?? [],
+        keywords: pData.keywords ?? [],
+        skills: skillsSnap.docs.map((d) => ({ id: d.id, plugin_id: pDoc.id, ...d.data() })) as PluginSkill[],
+        agents: agentsSnap.docs.map((d) => ({ id: d.id, plugin_id: pDoc.id, ...d.data() })) as PluginAgent[],
+        commands: commandsSnap.docs.map((d) => ({ id: d.id, plugin_id: pDoc.id, ...d.data() })) as PluginCommand[],
+      } as PluginWithDetails);
+    }
+
+    return {
+      id: doc.id,
+      ...data,
+      plugins,
+    } as MarketplaceWithPlugins;
+  } catch (error) {
+    console.error("Error fetching marketplace by ID:", error);
+    return null;
+  }
 }
 
 /** Check marketplace name uniqueness for a user */
 export async function getMarketplaceByName(
   userId: string,
-  name: string
+  name: string,
 ): Promise<Marketplace | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data, error } = await supabase
-    .from("marketplaces")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("name", name)
-    .single();
+  try {
+    const snap = await adminDb
+      .collection("marketplaces")
+      .where("user_id", "==", userId)
+      .where("name", "==", name)
+      .limit(1)
+      .get();
 
-  if (error || !data) return null;
-  return data as Marketplace;
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    return { id: doc.id, ...doc.data() } as Marketplace;
+  } catch {
+    return null;
+  }
 }
 
 /** Create a new marketplace */
@@ -162,17 +134,23 @@ export async function createMarketplace(data: {
   version: string;
   owner_email?: string;
 }): Promise<Marketplace | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("marketplaces")
-    .insert(data)
-    .select()
-    .single();
-
-  if (error || !result) return null;
-  return result as Marketplace;
+  try {
+    const ts = now();
+    const docRef = await adminDb.collection("marketplaces").add({
+      ...data,
+      owner_email: data.owner_email ?? null,
+      is_published: false,
+      created_at: ts,
+      updated_at: ts,
+    });
+    const doc = await docRef.get();
+    return { id: doc.id, ...doc.data() } as Marketplace;
+  } catch (error) {
+    console.error("Error creating marketplace:", error);
+    return null;
+  }
 }
 
 /** Update marketplace metadata */
@@ -184,137 +162,152 @@ export async function updateMarketplace(
     description: string;
     version: string;
     owner_email: string | null;
-  }>
+  }>,
 ): Promise<Marketplace | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("marketplaces")
-    .update(data)
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error || !result) return null;
-  return result as Marketplace;
+  try {
+    const ref = adminDb.collection("marketplaces").doc(id);
+    await ref.update({ ...data, updated_at: now() });
+    const doc = await ref.get();
+    return { id: doc.id, ...doc.data() } as Marketplace;
+  } catch (error) {
+    console.error("Error updating marketplace:", error);
+    return null;
+  }
 }
 
-/** Delete a marketplace (cascades to plugins/skills) */
+/** Delete a marketplace (manually cascades to plugins subcollection) */
 export async function deleteMarketplace(id: string): Promise<boolean> {
-  const supabase = await getSupabase();
-  if (!supabase) return false;
+  if (!isConfigured()) return false;
 
-  const { error } = await supabase.from("marketplaces").delete().eq("id", id);
-  return !error;
+  try {
+    const ref = adminDb.collection("marketplaces").doc(id);
+
+    // Delete all plugins and their subcollections
+    const pluginsSnap = await ref.collection("plugins").get();
+    for (const pDoc of pluginsSnap.docs) {
+      await deletePluginSubcollections(pDoc.ref);
+      await pDoc.ref.delete();
+    }
+
+    await ref.delete();
+    return true;
+  } catch (error) {
+    console.error("Error deleting marketplace:", error);
+    return false;
+  }
 }
 
 /** Toggle published status */
 export async function togglePublishMarketplace(
   id: string,
-  publish: boolean
+  publish: boolean,
 ): Promise<boolean> {
-  const supabase = await getSupabase();
-  if (!supabase) return false;
+  if (!isConfigured()) return false;
 
-  const { error } = await supabase
-    .from("marketplaces")
-    .update({ is_published: publish })
-    .eq("id", id);
-
-  return !error;
+  try {
+    await adminDb
+      .collection("marketplaces")
+      .doc(id)
+      .update({ is_published: publish, updated_at: now() });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** Fetch all published marketplaces (for public browse page) */
+/** Fetch all published marketplaces */
 export async function getPublishedMarketplaces(): Promise<
   (Marketplace & { plugin_count: number })[]
 > {
-  const supabase = await getSupabase();
-  if (!supabase) return [];
+  if (!isConfigured()) return [];
 
-  const { data, error } = await supabase
-    .from("marketplaces")
-    .select(
-      `
-      *,
-      marketplace_plugins(id)
-    `
-    )
-    .eq("is_published", true)
-    .order("updated_at", { ascending: false });
+  try {
+    const snap = await adminDb
+      .collection("marketplaces")
+      .where("is_published", "==", true)
+      .orderBy("updated_at", "desc")
+      .get();
 
-  if (error || !data) return [];
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return data.map((row: any) => ({
-    id: row.id,
-    user_id: row.user_id,
-    name: row.name,
-    display_name: row.display_name,
-    description: row.description,
-    version: row.version,
-    owner_email: row.owner_email,
-    is_published: row.is_published,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    plugin_count: row.marketplace_plugins?.length ?? 0,
-  }));
+    const results: (Marketplace & { plugin_count: number })[] = [];
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      const pluginsSnap = await doc.ref.collection("plugins").count().get();
+      results.push({
+        id: doc.id,
+        ...data,
+        plugin_count: pluginsSnap.data().count,
+      } as Marketplace & { plugin_count: number });
+    }
+    return results;
+  } catch {
+    return [];
+  }
 }
 
 // ─── Plugin CRUD ───
 
 /** Fetch a single plugin with skills, agents, commands */
 export async function getPluginById(
-  id: string
+  id: string,
+  marketplaceId?: string,
 ): Promise<PluginWithDetails | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data, error } = await supabase
-    .from("marketplace_plugins")
-    .select(
-      `
-      *,
-      plugin_skills(*),
-      plugin_agents(*),
-      plugin_commands(*)
-    `
-    )
-    .eq("id", id)
-    .single();
+  try {
+    // If we know the marketplace, access directly
+    if (marketplaceId) {
+      const ref = adminDb
+        .collection("marketplaces")
+        .doc(marketplaceId)
+        .collection("plugins")
+        .doc(id);
 
-  if (error || !data) return null;
+      const doc = await ref.get();
+      if (!doc.exists) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const row = data as any;
+      return await buildPluginWithDetails(doc, marketplaceId);
+    }
+
+    // Otherwise, search all marketplaces (less efficient)
+    const marketplacesSnap = await adminDb.collection("marketplaces").get();
+    for (const mDoc of marketplacesSnap.docs) {
+      const pluginDoc = await mDoc.ref.collection("plugins").doc(id).get();
+      if (pluginDoc.exists) {
+        return await buildPluginWithDetails(pluginDoc, mDoc.id);
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error fetching plugin by ID:", error);
+    return null;
+  }
+}
+
+async function buildPluginWithDetails(
+  doc: FirebaseFirestore.DocumentSnapshot,
+  marketplaceId: string,
+): Promise<PluginWithDetails> {
+  const data = doc.data()!;
+
+  const [skillsSnap, agentsSnap, commandsSnap] = await Promise.all([
+    doc.ref.collection("skills").orderBy("sort_order").get(),
+    doc.ref.collection("agents").orderBy("sort_order").get(),
+    doc.ref.collection("commands").orderBy("sort_order").get(),
+  ]);
+
   return {
-    id: row.id,
-    marketplace_id: row.marketplace_id,
-    name: row.name,
-    description: row.description,
-    version: row.version,
-    author_name: row.author_name,
-    author_email: row.author_email,
-    homepage: row.homepage,
-    category: row.category,
-    tags: row.tags ?? [],
-    keywords: row.keywords ?? [],
-    sort_order: row.sort_order,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    skills: (row.plugin_skills ?? []).sort(
-      (a: { sort_order: number }, b: { sort_order: number }) =>
-        a.sort_order - b.sort_order
-    ),
-    agents: (row.plugin_agents ?? []).sort(
-      (a: { sort_order: number }, b: { sort_order: number }) =>
-        a.sort_order - b.sort_order
-    ),
-    commands: (row.plugin_commands ?? []).sort(
-      (a: { sort_order: number }, b: { sort_order: number }) =>
-        a.sort_order - b.sort_order
-    ),
-  };
+    id: doc.id,
+    marketplace_id: marketplaceId,
+    ...data,
+    tags: data.tags ?? [],
+    keywords: data.keywords ?? [],
+    skills: skillsSnap.docs.map((d) => ({ id: d.id, plugin_id: doc.id, ...d.data() })) as PluginSkill[],
+    agents: agentsSnap.docs.map((d) => ({ id: d.id, plugin_id: doc.id, ...d.data() })) as PluginAgent[],
+    commands: commandsSnap.docs.map((d) => ({ id: d.id, plugin_id: doc.id, ...d.data() })) as PluginCommand[],
+  } as PluginWithDetails;
 }
 
 /** Create a new plugin */
@@ -330,17 +323,31 @@ export async function createPlugin(data: {
   tags?: string[];
   keywords?: string[];
 }): Promise<MarketplacePlugin | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("marketplace_plugins")
-    .insert(data)
-    .select()
-    .single();
+  try {
+    const ts = now();
+    const { marketplace_id, ...rest } = data;
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(marketplace_id)
+      .collection("plugins");
 
-  if (error || !result) return null;
-  return result as MarketplacePlugin;
+    const docRef = await ref.add({
+      ...rest,
+      tags: rest.tags ?? [],
+      keywords: rest.keywords ?? [],
+      sort_order: 0,
+      created_at: ts,
+      updated_at: ts,
+    });
+
+    const doc = await docRef.get();
+    return { id: doc.id, marketplace_id, ...doc.data() } as MarketplacePlugin;
+  } catch (error) {
+    console.error("Error creating plugin:", error);
+    return null;
+  }
 }
 
 /** Update plugin metadata */
@@ -356,32 +363,65 @@ export async function updatePlugin(
     category: string | null;
     tags: string[];
     keywords: string[];
-  }>
+  }>,
+  marketplaceId?: string,
 ): Promise<MarketplacePlugin | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("marketplace_plugins")
-    .update(data)
-    .eq("id", id)
-    .select()
-    .single();
+  try {
+    const plugin = await getPluginById(id, marketplaceId);
+    if (!plugin) return null;
 
-  if (error || !result) return null;
-  return result as MarketplacePlugin;
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(id);
+
+    await ref.update({ ...data, updated_at: now() });
+    const doc = await ref.get();
+    return { id: doc.id, marketplace_id: plugin.marketplace_id, ...doc.data() } as MarketplacePlugin;
+  } catch (error) {
+    console.error("Error updating plugin:", error);
+    return null;
+  }
 }
 
-/** Delete a plugin (cascades) */
-export async function deletePlugin(id: string): Promise<boolean> {
-  const supabase = await getSupabase();
-  if (!supabase) return false;
+/** Delete a plugin (cascades subcollections) */
+export async function deletePlugin(
+  id: string,
+  marketplaceId?: string,
+): Promise<boolean> {
+  if (!isConfigured()) return false;
 
-  const { error } = await supabase
-    .from("marketplace_plugins")
-    .delete()
-    .eq("id", id);
-  return !error;
+  try {
+    const plugin = await getPluginById(id, marketplaceId);
+    if (!plugin) return false;
+
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(id);
+
+    await deletePluginSubcollections(ref);
+    await ref.delete();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function deletePluginSubcollections(
+  ref: FirebaseFirestore.DocumentReference,
+): Promise<void> {
+  const collections = ["skills", "agents", "commands"];
+  for (const col of collections) {
+    const snap = await ref.collection(col).get();
+    for (const doc of snap.docs) {
+      await doc.ref.delete();
+    }
+  }
 }
 
 // ─── Skill CRUD ───
@@ -392,18 +432,36 @@ export async function createSkill(data: {
   description: string;
   disable_model_invocation?: boolean;
   content: string;
+  marketplace_id?: string;
 }): Promise<PluginSkill | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("plugin_skills")
-    .insert(data)
-    .select()
-    .single();
+  try {
+    const { plugin_id, marketplace_id, ...rest } = data;
+    const plugin = await getPluginById(plugin_id, marketplace_id);
+    if (!plugin) return null;
 
-  if (error || !result) return null;
-  return result as PluginSkill;
+    const ts = now();
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(plugin_id)
+      .collection("skills");
+
+    const docRef = await ref.add({
+      ...rest,
+      disable_model_invocation: rest.disable_model_invocation ?? true,
+      sort_order: 0,
+      created_at: ts,
+      updated_at: ts,
+    });
+    const doc = await docRef.get();
+    return { id: doc.id, plugin_id, ...doc.data() } as PluginSkill;
+  } catch (error) {
+    console.error("Error creating skill:", error);
+    return null;
+  }
 }
 
 export async function updateSkill(
@@ -413,31 +471,57 @@ export async function updateSkill(
     description: string;
     disable_model_invocation: boolean;
     content: string;
-  }>
+  }>,
+  pluginId?: string,
+  marketplaceId?: string,
 ): Promise<PluginSkill | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("plugin_skills")
-    .update(data)
-    .eq("id", id)
-    .select()
-    .single();
+  try {
+    // Find the skill's parent path
+    const plugin = pluginId ? await getPluginById(pluginId, marketplaceId) : null;
+    if (!plugin || !pluginId) return null;
 
-  if (error || !result) return null;
-  return result as PluginSkill;
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(pluginId)
+      .collection("skills")
+      .doc(id);
+
+    await ref.update({ ...data, updated_at: now() });
+    const doc = await ref.get();
+    return { id: doc.id, plugin_id: pluginId, ...doc.data() } as PluginSkill;
+  } catch (error) {
+    console.error("Error updating skill:", error);
+    return null;
+  }
 }
 
-export async function deleteSkill(id: string): Promise<boolean> {
-  const supabase = await getSupabase();
-  if (!supabase) return false;
+export async function deleteSkill(
+  id: string,
+  pluginId?: string,
+  marketplaceId?: string,
+): Promise<boolean> {
+  if (!isConfigured()) return false;
 
-  const { error } = await supabase
-    .from("plugin_skills")
-    .delete()
-    .eq("id", id);
-  return !error;
+  try {
+    const plugin = pluginId ? await getPluginById(pluginId, marketplaceId) : null;
+    if (!plugin || !pluginId) return false;
+
+    await adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(pluginId)
+      .collection("skills")
+      .doc(id)
+      .delete();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Agent CRUD ───
@@ -447,51 +531,84 @@ export async function createAgent(data: {
   name: string;
   description: string;
   content: string;
+  marketplace_id?: string;
 }): Promise<PluginAgent | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("plugin_agents")
-    .insert(data)
-    .select()
-    .single();
+  try {
+    const { plugin_id, marketplace_id, ...rest } = data;
+    const plugin = await getPluginById(plugin_id, marketplace_id);
+    if (!plugin) return null;
 
-  if (error || !result) return null;
-  return result as PluginAgent;
+    const ts = now();
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(plugin_id)
+      .collection("agents");
+
+    const docRef = await ref.add({ ...rest, sort_order: 0, created_at: ts, updated_at: ts });
+    const doc = await docRef.get();
+    return { id: doc.id, plugin_id, ...doc.data() } as PluginAgent;
+  } catch (error) {
+    console.error("Error creating agent:", error);
+    return null;
+  }
 }
 
 export async function updateAgent(
   id: string,
-  data: Partial<{
-    name: string;
-    description: string;
-    content: string;
-  }>
+  data: Partial<{ name: string; description: string; content: string }>,
+  pluginId?: string,
+  marketplaceId?: string,
 ): Promise<PluginAgent | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("plugin_agents")
-    .update(data)
-    .eq("id", id)
-    .select()
-    .single();
+  try {
+    const plugin = pluginId ? await getPluginById(pluginId, marketplaceId) : null;
+    if (!plugin || !pluginId) return null;
 
-  if (error || !result) return null;
-  return result as PluginAgent;
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(pluginId)
+      .collection("agents")
+      .doc(id);
+
+    await ref.update({ ...data, updated_at: now() });
+    const doc = await ref.get();
+    return { id: doc.id, plugin_id: pluginId, ...doc.data() } as PluginAgent;
+  } catch (error) {
+    console.error("Error updating agent:", error);
+    return null;
+  }
 }
 
-export async function deleteAgent(id: string): Promise<boolean> {
-  const supabase = await getSupabase();
-  if (!supabase) return false;
+export async function deleteAgent(
+  id: string,
+  pluginId?: string,
+  marketplaceId?: string,
+): Promise<boolean> {
+  if (!isConfigured()) return false;
 
-  const { error } = await supabase
-    .from("plugin_agents")
-    .delete()
-    .eq("id", id);
-  return !error;
+  try {
+    const plugin = pluginId ? await getPluginById(pluginId, marketplaceId) : null;
+    if (!plugin || !pluginId) return false;
+
+    await adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(pluginId)
+      .collection("agents")
+      .doc(id)
+      .delete();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Command CRUD ───
@@ -500,48 +617,82 @@ export async function createCommand(data: {
   plugin_id: string;
   name: string;
   content: string;
+  marketplace_id?: string;
 }): Promise<PluginCommand | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("plugin_commands")
-    .insert(data)
-    .select()
-    .single();
+  try {
+    const { plugin_id, marketplace_id, ...rest } = data;
+    const plugin = await getPluginById(plugin_id, marketplace_id);
+    if (!plugin) return null;
 
-  if (error || !result) return null;
-  return result as PluginCommand;
+    const ts = now();
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(plugin_id)
+      .collection("commands");
+
+    const docRef = await ref.add({ ...rest, sort_order: 0, created_at: ts, updated_at: ts });
+    const doc = await docRef.get();
+    return { id: doc.id, plugin_id, ...doc.data() } as PluginCommand;
+  } catch (error) {
+    console.error("Error creating command:", error);
+    return null;
+  }
 }
 
 export async function updateCommand(
   id: string,
-  data: Partial<{
-    name: string;
-    content: string;
-  }>
+  data: Partial<{ name: string; content: string }>,
+  pluginId?: string,
+  marketplaceId?: string,
 ): Promise<PluginCommand | null> {
-  const supabase = await getSupabase();
-  if (!supabase) return null;
+  if (!isConfigured()) return null;
 
-  const { data: result, error } = await supabase
-    .from("plugin_commands")
-    .update(data)
-    .eq("id", id)
-    .select()
-    .single();
+  try {
+    const plugin = pluginId ? await getPluginById(pluginId, marketplaceId) : null;
+    if (!plugin || !pluginId) return null;
 
-  if (error || !result) return null;
-  return result as PluginCommand;
+    const ref = adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(pluginId)
+      .collection("commands")
+      .doc(id);
+
+    await ref.update({ ...data, updated_at: now() });
+    const doc = await ref.get();
+    return { id: doc.id, plugin_id: pluginId, ...doc.data() } as PluginCommand;
+  } catch (error) {
+    console.error("Error updating command:", error);
+    return null;
+  }
 }
 
-export async function deleteCommand(id: string): Promise<boolean> {
-  const supabase = await getSupabase();
-  if (!supabase) return false;
+export async function deleteCommand(
+  id: string,
+  pluginId?: string,
+  marketplaceId?: string,
+): Promise<boolean> {
+  if (!isConfigured()) return false;
 
-  const { error } = await supabase
-    .from("plugin_commands")
-    .delete()
-    .eq("id", id);
-  return !error;
+  try {
+    const plugin = pluginId ? await getPluginById(pluginId, marketplaceId) : null;
+    if (!plugin || !pluginId) return false;
+
+    await adminDb
+      .collection("marketplaces")
+      .doc(plugin.marketplace_id)
+      .collection("plugins")
+      .doc(pluginId)
+      .collection("commands")
+      .doc(id)
+      .delete();
+    return true;
+  } catch {
+    return false;
+  }
 }

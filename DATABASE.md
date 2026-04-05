@@ -1,219 +1,199 @@
-# DATABASE.md -- Database Schema, Migrations & RLS Policies
+# DATABASE.md -- Firestore Data Model
 
 ## Overview
 
-- **Engine**: PostgreSQL 17 (via Supabase)
-- **ORM**: None. Direct Supabase client queries with typed responses.
-- **Migrations**: SQL files in `supabase/migrations/`, applied via `supabase db push`.
-- **RLS**: Row Level Security enabled on every table. Auth enforcement happens at the database level.
+- **Engine**: Cloud Firestore (Firebase, NoSQL document database)
+- **Admin SDK**: `firebase-admin` for server-side reads/writes
+- **Client SDK**: `firebase` (used only for Auth on the client side; Firestore reads go through the Admin SDK in Server Components)
+- **Migrations**: None needed -- Firestore is schemaless; collections are created on first write
+- **Security**: Firestore Security Rules should be configured in the Firebase Console for any client-side access. Currently all data access goes through the Admin SDK (which bypasses security rules).
 
-## Schema Diagram
+## Data Model Diagram
 
 ```
-┌──────────────────┐
-│   auth.users     │ (Supabase managed)
-│   ────────────── │
-│   id (UUID, PK)  │
-│   email          │
-│   ...            │
-└────────┬─────────┘
-         │ 1:1 (trigger: handle_new_user)
-         ▼
-┌──────────────────┐     ┌──────────────────┐
-│   profiles       │     │   addresses      │
-│   ────────────── │◄────│   ────────────── │
-│   id (FK→users)  │  1:N│   user_id        │
-│   display_name   │     │   type           │
-│   avatar_url     │     │   name, street   │
-│   phone          │     │   city, state    │
-└────────┬─────────┘     │   zip, country   │
-         │               └──────────────────┘
-         │
-         │ 1:N
-         ▼
-┌──────────────────┐     ┌──────────────────┐
-│   orders         │────►│   order_items    │
-│   ────────────── │ 1:N │   ────────────── │
-│   order_number   │     │   product_id     │
-│   status         │     │   variant_id     │
-│   email          │     │   quantity       │
-│   subtotal, tax  │     │   unit_price     │
-│   shipping_cost  │     │   *_snapshot     │
-│   total          │     └──────────────────┘
-│   stripe_*       │
-└────────┬─────────┘
-         │ 1:N
-         ▼
-┌──────────────────────┐
-│ order_status_history │
-└──────────────────────┘
+products/{productId}
+  ├── images/{imageId}              # Product gallery images
+  ├── variants/{variantId}          # Size/color variants
+  │   └── options/{optionId}        # Key-value pairs for variant options
+  └── (fields: slug, title, description, retail_price, status, ...)
 
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│   categories     │◄────│   products       │────►│  product_images  │
-│   ────────────── │ N:1 │   ────────────── │ 1:N │  ────────────── │
-│   name, slug     │     │   slug, title    │     │  url, alt_text   │
-│   parent_id(self)│     │   description    │     │  is_primary      │
-│   image_url      │     │   retail_price   │     └──────────────────┘
-│   sort_order     │     │   status         │
-└──────────────────┘     │   featured       │     ┌──────────────────┐
-                         │   affiliate_url  │────►│ product_variants │
-                         │   source_platform│ 1:N │ ────────────────│
-                         │   search_vector  │     │ sku, title       │
-                         └────────┬─────────┘     │ price_override   │
-                                  │               │ stock_quantity   │
-                         ┌────────┼───────┐       └────────┬─────────┘
-                         ▼        ▼       ▼                │ 1:N
-                    watchlist  reviews  carts               ▼
-                                         │        ┌──────────────────┐
-                                         ▼        │ variant_options  │
-                                     cart_items   │ ────────────────│
-                                                  │ option_name      │
-                                                  │ option_value     │
-                                                  └──────────────────┘
+categories/{categoryId}
+  └── (fields: name, slug, parent_id, image_url, sort_order)
 
-── Marketplace Domain ──
-
-┌──────────────────┐     ┌────────────────────┐
-│  marketplaces    │────►│ marketplace_plugins│
-│  ────────────── │ 1:N │ ──────────────────│
-│  user_id(→users)│     │ name, description  │
-│  name (slug)     │     │ version            │
-│  display_name    │     │ author_name        │
-│  version         │     │ tags, keywords     │
-│  is_published    │     └─────────┬──────────┘
-└──────────────────┘               │
-                          ┌────────┼────────┐
-                          ▼        ▼        ▼
-                   plugin_skills  plugin_agents  plugin_commands
+marketplaces/{marketplaceId}
+  └── plugins/{pluginId}
+      ├── skills/{skillId}          # SKILL.md files
+      ├── agents/{agentId}          # Agent definitions
+      └── commands/{commandId}      # Command definitions
 ```
 
-## Tables
+## Collections
 
-### E-Commerce Domain (14 tables)
+### Products Collection: `products/{productId}`
 
-| Table | Purpose | Key Fields |
-|-------|---------|-----------|
-| `profiles` | User profiles (1:1 with auth.users) | display_name, avatar_url, phone |
-| `addresses` | Shipping/billing addresses | user_id, type, street, city, state, zip |
-| `categories` | Product categories (self-referencing) | name, slug, parent_id, image_url |
-| `products` | Product catalog | slug, title, retail_price, status, featured, affiliate_url, source_platform, search_vector |
-| `product_variants` | Size/color variants | product_id, sku, title, price_override, stock_quantity |
-| `variant_options` | Key-value pairs for variants | variant_id, option_name, option_value |
-| `product_images` | Product gallery images | product_id, variant_id, url, is_primary, position |
-| `carts` | Shopping carts (user or session) | user_id, session_id |
-| `cart_items` | Items in a cart | cart_id, product_id, variant_id, quantity, price_at_addition |
-| `orders` | Placed orders | order_number (RC-XXXXXX), status, email, total, stripe_payment_intent_id |
-| `order_items` | Line items in an order | order_id, quantity, unit_price, *_snapshot fields |
-| `order_status_history` | Audit trail for order status changes | order_id, status, changed_by, note |
-| `watchlist` | User product wishlist | user_id, product_id (unique pair) |
-| `reviews` | Product reviews (moderated) | user_id, product_id, rating (1-5), status (pending/approved/rejected) |
+| Field | Type | Description |
+|-------|------|------------|
+| `slug` | string | URL-friendly identifier (unique) |
+| `title` | string | Product name |
+| `description` | string? | Full description |
+| `short_description` | string? | Brief description for cards |
+| `category_id` | string? | Reference to categories collection |
+| `category_name` | string? | Denormalized category name |
+| `category_slug` | string? | Denormalized category slug |
+| `brand` | string? | Brand name |
+| `tags` | string[] | Product tags |
+| `retail_price` | number | Price |
+| `compare_at_price` | number? | Original/compare-at price |
+| `status` | "draft" \| "active" | Product status |
+| `featured` | boolean | Show on homepage |
+| `affiliate_url` | string? | Affiliate redirect URL (with tag) |
+| `source_url` | string? | Original product URL |
+| `source_platform` | "amazon" \| "aliexpress" \| "other" \| null | Source marketplace |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-### Marketplace Domain (5 tables)
+#### Subcollection: `products/{productId}/images/{imageId}`
 
-| Table | Purpose | Key Fields |
-|-------|---------|-----------|
-| `marketplaces` | User-created AI plugin marketplaces | user_id, name (slug), display_name, version, is_published |
-| `marketplace_plugins` | Plugins within a marketplace | marketplace_id, name (slug), description, version, author_name, tags, keywords |
-| `plugin_skills` | SKILL.md files for a plugin | plugin_id, name, description, disable_model_invocation, content |
-| `plugin_agents` | Agent definitions for a plugin | plugin_id, name, description, content |
-| `plugin_commands` | Command definitions for a plugin | plugin_id, name, content |
+| Field | Type | Description |
+|-------|------|------------|
+| `url` | string | Image URL |
+| `alt_text` | string? | Alt text |
+| `position` | number | Sort order |
+| `is_primary` | boolean | Primary image flag |
 
-## Row Level Security (RLS) Policies
+#### Subcollection: `products/{productId}/variants/{variantId}`
 
-RLS is enabled on **every table**. Key patterns:
+| Field | Type | Description |
+|-------|------|------------|
+| `title` | string | Variant name (e.g., "Small", "Red") |
+| `sku` | string? | SKU code |
+| `price_override` | number? | Override price (null = use product price) |
+| `stock_quantity` | number | Available stock |
+| `weight` | number? | Weight in grams |
+| `sort_order` | number | Sort order |
 
-### Public Read Access
-- `categories` -- Anyone can view
-- `products` -- Anyone can view **active** products
-- `product_variants`, `variant_options`, `product_images` -- Anyone can view
-- Published marketplaces and their children -- Anyone can view when `is_published = TRUE`
+#### Subcollection: `products/{productId}/variants/{variantId}/options/{optionId}`
 
-### Owner-Only Access
-- `profiles` -- Users can view/update their own profile only
-- `addresses` -- Users can manage their own addresses
-- `watchlist` -- Users can manage their own watchlist
-- `reviews` -- Users can create/update their own; anyone can view **approved** reviews
-- `marketplaces` -- Users can manage their own marketplaces
-- `marketplace_plugins`, `plugin_skills`, `plugin_agents`, `plugin_commands` -- Access derived from parent marketplace ownership
+| Field | Type | Description |
+|-------|------|------------|
+| `option_name` | string | e.g., "Size", "Color" |
+| `option_value` | string | e.g., "XL", "Red" |
 
-### Admin Access
-- `categories`, `products`, `product_variants`, `variant_options`, `product_images` -- Full access for users with `app_metadata.role = 'admin'`
-- `reviews` -- Admins can manage all reviews
+### Categories Collection: `categories/{categoryId}`
 
-### Service Role Access
-- `orders`, `order_items` -- Service role has full access (for webhook processing)
+| Field | Type | Description |
+|-------|------|------------|
+| `name` | string | Category display name |
+| `slug` | string | URL-friendly identifier (unique) |
+| `description` | string? | Category description |
+| `parent_id` | string? | Self-reference for hierarchy |
+| `image_url` | string? | Category image |
+| `sort_order` | number | Display order |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-## Key Database Features
+### Marketplaces Collection: `marketplaces/{marketplaceId}`
 
-### Full-Text Search
-Products have a `search_vector` column (tsvector) auto-updated by a trigger. Weights:
-- **A**: title
-- **B**: short_description
-- **C**: description
-- **D**: brand
+| Field | Type | Description |
+|-------|------|------------|
+| `user_id` | string | Firebase Auth UID of owner |
+| `name` | string | Slug-style identifier |
+| `display_name` | string | Human-readable name |
+| `description` | string | Description |
+| `version` | string | Semantic version |
+| `owner_email` | string? | Contact email |
+| `is_published` | boolean | Publicly visible flag |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-Indexed with a GIN index (`products_search_idx`).
+#### Subcollection: `marketplaces/{id}/plugins/{pluginId}`
 
-### Auto-Updated Timestamps
-A shared `update_updated_at()` trigger function is applied to all tables with an `updated_at` column. This fires `BEFORE UPDATE` and sets `updated_at = NOW()`.
+| Field | Type | Description |
+|-------|------|------------|
+| `name` | string | Plugin identifier |
+| `description` | string | Plugin description |
+| `version` | string | Semantic version |
+| `author_name` | string | Author display name |
+| `author_email` | string? | Author email |
+| `homepage` | string? | Homepage URL |
+| `category` | string? | Plugin category |
+| `tags` | string[] | Tags |
+| `keywords` | string[] | Keywords |
+| `sort_order` | number | Display order |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-### Order Number Generation
-Sequential order numbers in format `RC-XXXXXX` (e.g., `RC-001000`), generated by the `generate_order_number()` function using a PostgreSQL sequence starting at 1000.
+#### Subcollection: `marketplaces/{id}/plugins/{pid}/skills/{skillId}`
 
-### Profile Auto-Creation
-A trigger `on_auth_user_created` fires `AFTER INSERT ON auth.users` and creates a corresponding `profiles` row. Display name is derived from user metadata or email prefix.
+| Field | Type | Description |
+|-------|------|------------|
+| `name` | string | Skill name |
+| `description` | string | Skill description |
+| `disable_model_invocation` | boolean | Disable model invocation flag |
+| `content` | string | SKILL.md content |
+| `sort_order` | number | Display order |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-### Unique Constraints
-- `products.slug` -- unique across all products
-- `categories.slug` -- unique across all categories
-- `cart_items(cart_id, product_id, variant_id)` -- one entry per product/variant per cart
-- `watchlist(user_id, product_id)` -- one entry per user per product
-- `marketplaces(user_id, name)` -- unique marketplace names per user
-- `marketplace_plugins(marketplace_id, name)` -- unique plugin names per marketplace
-- `plugin_skills(plugin_id, name)`, `plugin_agents(plugin_id, name)`, `plugin_commands(plugin_id, name)` -- unique names within a plugin
+#### Subcollection: `marketplaces/{id}/plugins/{pid}/agents/{agentId}`
 
-## Migrations
+| Field | Type | Description |
+|-------|------|------------|
+| `name` | string | Agent name |
+| `description` | string | Agent description |
+| `content` | string | Agent definition content |
+| `sort_order` | number | Display order |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-Migrations are in `supabase/migrations/` and run in order:
+#### Subcollection: `marketplaces/{id}/plugins/{pid}/commands/{commandId}`
 
-| File | Description |
-|------|-------------|
-| `20260215085625_initial_schema.sql` | 14 e-commerce tables, RLS, triggers, full-text search, indexes |
-| `20260215090000_seed_data.sql` | Initial product and category data |
-| `20260216130000_fix_image_urls.sql` | Image URL corrections |
-| `20260223100000_add_affiliate_fields.sql` | Adds affiliate_url, source_url, source_platform to products |
-| `20260223120000_marketplace_tables.sql` | 5 marketplace tables with RLS and triggers |
+| Field | Type | Description |
+|-------|------|------------|
+| `name` | string | Command name |
+| `content` | string | Command content |
+| `sort_order` | number | Display order |
+| `created_at` | string (ISO) | Creation timestamp |
+| `updated_at` | string (ISO) | Last update timestamp |
 
-### Creating a New Migration
+## Key Differences from SQL
 
-```bash
-# 1. Create the migration file
-npx supabase migration new descriptive_name
+### No Foreign Keys
+Firestore doesn't have foreign keys or joins. Parent-child relationships are expressed through:
+1. **Subcollections** (e.g., `products/{id}/images/{imgId}`) -- preferred for hierarchical data
+2. **Document references** (e.g., `category_id` field stores the category document ID) -- used for cross-collection references
 
-# 2. Edit the generated file in supabase/migrations/
+### Denormalization
+Products store `category_name` and `category_slug` directly (denormalized from the categories collection). This avoids the need for joins when displaying product cards.
 
-# 3. Apply locally
-npx supabase db push
+### No Full-Text Search
+Firestore doesn't support full-text search natively. The current implementation fetches active products and filters by substring match in-app. For production at scale, integrate Algolia or Typesense.
 
-# 4. Update TypeScript types in src/types/index.ts to match
-```
+### No RLS (Row-Level Security)
+Firestore has Security Rules, but since all data access goes through the Admin SDK (which bypasses rules), authorization is enforced in application code:
+- Server Actions call `getSessionUser()` to verify authentication
+- Marketplace ownership is checked by comparing `user_id` against the session user's `uid`
+- Admin API routes use Bearer token authentication
 
-### Important Notes for Migrations
-- Always enable RLS on new tables: `ALTER TABLE new_table ENABLE ROW LEVEL SECURITY;`
-- Always add at least a SELECT policy for public-facing data.
-- Add the `update_updated_at` trigger if the table has an `updated_at` column.
-- Use `gen_random_uuid()` (preferred) or `uuid_generate_v4()` for UUID primary keys.
-- All prices use `NUMERIC(10,2)`.
-- All timestamps use `TIMESTAMPTZ NOT NULL DEFAULT NOW()`.
+### Auto-Generated IDs
+Firestore auto-generates document IDs when using `collection.add()`. These are random alphanumeric strings, not sequential UUIDs.
+
+### No Auto-Updated Timestamps
+Timestamps are managed in application code (query functions set `created_at` and `updated_at` manually). There are no database triggers.
 
 ## Indexes
 
-Key performance indexes:
-- `products_search_idx` (GIN on search_vector) -- full-text search
-- `products_tags_idx` (GIN on tags) -- tag filtering
-- `products_category_idx` -- category filtering
-- `products_status_idx` -- status filtering
-- `products_featured_idx` (partial, WHERE featured=true) -- featured products query
-- `products_source_platform_idx` (partial) -- affiliate platform filtering
-- `orders_stripe_pi_idx` -- Stripe webhook lookups
-- Various foreign key indexes on all join columns
+Firestore requires composite indexes for queries that combine multiple fields. These are auto-created when you first run a query that needs one (Firestore logs a URL to create the index in the console). Key queries that may need indexes:
+
+- Products: `status` + `category_slug` + `created_at` (product listing with category filter)
+- Products: `status` + `featured` + `created_at` (featured products)
+- Products: `status` + `brand` + `retail_price` (brand filter with price sort)
+- Marketplaces: `user_id` + `updated_at` (user's marketplaces sorted by update time)
+- Marketplaces: `is_published` + `updated_at` (public marketplace listing)
+
+## Adding a New Collection
+
+1. No migration needed -- just start writing to the collection in query functions.
+2. Add the query functions to `src/lib/queries/`.
+3. Add TypeScript types to `src/types/index.ts`.
+4. If the collection needs composite query indexes, Firestore will log the index creation URL on first query attempt.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/firebase/session";
 import { getUserMarketplaces } from "@/lib/queries/marketplaces";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { MarketplaceCard } from "@/components/marketplace/marketplace-card";
@@ -7,14 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
 export default async function MarketplacesPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) return null;
 
-  const marketplaces = await getUserMarketplaces(user.id);
+  const marketplaces = await getUserMarketplaces(user.uid);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
