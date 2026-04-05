@@ -173,3 +173,78 @@ export interface PaginatedResult<T> {
   pageSize: number;
   totalPages: number;
 }
+
+// ─── Marketplace Types ───
+
+export interface Marketplace {
+  id: string;
+  user_id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  version: string;
+  owner_email: string | null;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketplaceWithPlugins extends Marketplace {
+  plugins: PluginWithDetails[];
+}
+
+export interface MarketplacePlugin {
+  id: string;
+  marketplace_id: string;
+  name: string;
+  description: string;
+  version: string;
+  author_name: string;
+  author_email: string | null;
+  homepage: string | null;
+  category: string | null;
+  tags: string[];
+  keywords: string[];
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PluginSkill {
+  id: string;
+  plugin_id: string;
+  name: string;
+  description: string;
+  disable_model_invocation: boolean;
+  content: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PluginAgent {
+  id: string;
+  plugin_id: string;
+  name: string;
+  description: string;
+  content: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PluginCommand {
+  id: string;
+  plugin_id: string;
+  name: string;
+  content: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PluginWithDetails extends MarketplacePlugin {
+  skills: PluginSkill[];
+  agents: PluginAgent[];
+  commands: PluginCommand[];
+}

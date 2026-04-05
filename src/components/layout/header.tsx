@@ -1,17 +1,62 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, ShoppingCart, User, Menu } from "lucide-react";
+import { Search, ShoppingCart, User, Menu, LogOut, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { MobileNav } from "./mobile-nav";
+import { createClient } from "@/lib/supabase/client";
+import { logout } from "@/app/(auth)/actions";
 
-export function Header() {
+interface HeaderProps {
+  initialUserEmail?: string | null;
+}
+
+export function Header({ initialUserEmail = null }: HeaderProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const totalItems = useCartStore((state) => state.totalItems());
   const openCart = useCartStore((state) => state.openCart);
+  const [userEmail, setUserEmail] = useState<string | null>(initialUserEmail);
+
+  useEffect(() => {
+    let mounted = true;
+    try {
+      const supabase = createClient();
+
+      // Only listen for auth state CHANGES (login/logout).
+      // We don't call getSession() here because the server already
+      // provided the initial state via initialUserEmail — calling
+      // getSession() can return null and overwrite the valid server value.
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event, session) => {
+        // Only update on actual auth changes, not the initial INITIAL_SESSION event
+        if (mounted && event !== "INITIAL_SESSION") {
+          setUserEmail(session?.user?.email ?? null);
+        }
+      });
+
+      return () => {
+        mounted = false;
+        subscription.unsubscribe();
+      };
+    } catch {
+      // Supabase not configured
+    }
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <>
@@ -80,11 +125,53 @@ export function Header() {
               )}
             </Button>
 
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/login" aria-label="Account">
-                <User className="size-5" />
-              </Link>
-            </Button>
+            {userEmail ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Account menu">
+                    <User className="size-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="font-mono text-xs text-muted-foreground">
+                    {userEmail}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/account" className="cursor-pointer">
+                      <User className="mr-2 size-4" />
+                      My Account
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link
+                      href="/account/marketplaces"
+                      className="cursor-pointer"
+                    >
+                      <Package className="mr-2 size-4" />
+                      My Marketplaces
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      logout();
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <LogOut className="mr-2 size-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button variant="ghost" size="icon" asChild>
+                <Link href="/login" aria-label="Account">
+                  <User className="size-5" />
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </header>
