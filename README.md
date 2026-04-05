@@ -46,9 +46,23 @@ ADMIN_API_KEY=generate-a-strong-random-key
 
 Products can be added using an Amazon or AliExpress URL. The system automatically detects the platform and appends your affiliate tag/ID so every purchase earns you a commission.
 
-### Option 1: CLI Script
+There are three ways to add products:
 
-The easiest way to add a product:
+### Option 1: Web UI (Recommended)
+
+1. Log in to your account and go to **Account > Add Affiliate Product** (or navigate directly to `/account/add-product`).
+2. Paste an AliExpress or Amazon product URL.
+3. Click **Auto-Fill** -- the app scrapes the page and populates the title, price, image, and description for you.
+4. Review and adjust the auto-filled fields. Pick a category, add tags, set a compare-at price, etc.
+5. Click **Add Product**.
+
+The product is created with your affiliate tag embedded in the link. On the storefront, the product card shows a **"BUY"** button and the detail page shows a **"BUY ON ALIEXPRESS"** (or Amazon) button -- both open your affiliate link in a new tab.
+
+> **Note**: The Auto-Fill scraper works on a best-effort basis. AliExpress pages are heavily JavaScript-rendered, so some fields may not be extracted. You can always fill them in manually.
+
+### Option 2: CLI Script
+
+The fastest way to add a product from the terminal:
 
 ```bash
 npm run add-product -- \
@@ -79,7 +93,7 @@ npm run add-product -- \
 | `--featured`      | No       | Flag to mark as featured (no value needed)      |
 | `--status`        | No       | `draft` or `active` (default: `active`)         |
 
-### Option 2: Admin API
+### Option 3: Admin API
 
 Send a POST request to `/api/admin/products` with a Bearer token:
 
